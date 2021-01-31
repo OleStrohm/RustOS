@@ -1,4 +1,4 @@
-use core::fmt;
+use core::{fmt, ptr::write_volatile};
 use lazy_static::lazy_static;
 use spin::Mutex;
 
@@ -85,10 +85,13 @@ impl Writer {
                 let col = self.column_position;
 
                 let color_code = self.color_code;
-                self.buffer.chars[row][col] = ScreenChar {
+                let sc = ScreenChar {
                     ascii_char: byte,
                     color_code,
                 };
+                unsafe {
+                    write_volatile(&mut self.buffer.chars[row][col] as *mut _, sc);
+                }
                 self.column_position += 1;
             }
         }
@@ -97,11 +100,11 @@ impl Writer {
     fn new_line(&mut self) {
         for row in 1..BUFFER_HEIGHT {
             for col in 0..BUFFER_WIDTH {
-                self.buffer.chars[row-1][col] = self.buffer.chars[row][col];
+                self.buffer.chars[row - 1][col] = self.buffer.chars[row][col];
             }
         }
 
-        self.clear_row(BUFFER_HEIGHT-1);
+        self.clear_row(BUFFER_HEIGHT - 1);
         self.column_position = 0;
     }
 
@@ -141,3 +144,35 @@ pub fn _print(args: fmt::Arguments) {
     WRITER.lock().write_fmt(args).unwrap();
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test_case]
+    fn println_simple() {
+        println!("simple println test");
+    }
+
+    #[test_case]
+    fn println_many() {
+        for _ in 0..200 {
+            println!("a line");
+        }
+    }
+
+    #[test_case]
+    fn println_output_correct() {
+        let s = "Some test string that fits on a single line";
+        println!("{}", s);
+        for (i, c) in s.chars().enumerate() {
+            unsafe {
+                let screen_char: ScreenChar = core::ptr::read_volatile(
+                    &WRITER.lock().buffer.chars[BUFFER_HEIGHT - 2][i] as *const _,
+                );
+                assert_eq!(char::from(screen_char.ascii_char), c);
+            }
+        }
+    }
+
+    // Should add more
+}
