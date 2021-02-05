@@ -141,7 +141,10 @@ macro_rules! println {
 #[doc(hidden)]
 pub fn _print(args: fmt::Arguments) {
     use core::fmt::Write;
-    WRITER.lock().write_fmt(args).unwrap();
+    use x86_64::instructions::interrupts;
+    interrupts::without_interrupts(|| {
+        WRITER.lock().write_fmt(args).unwrap();
+    });
 }
 
 #[cfg(test)]
@@ -162,17 +165,21 @@ mod tests {
 
     #[test_case]
     fn println_output_correct() {
-        let s = "Some test string that fits on a single line";
-        println!("{}", s);
-        for (i, c) in s.chars().enumerate() {
-            unsafe {
-                let screen_char: ScreenChar = core::ptr::read_volatile(
-                    &WRITER.lock().buffer.chars[BUFFER_HEIGHT - 2][i] as *const _,
-                );
-                assert_eq!(char::from(screen_char.ascii_char), c);
-            }
-        }
-    }
+        use core::fmt::Write;
+        use x86_64::instructions::interrupts;
 
-    // Should add more
+        let s = "Some test string that fits on a single line";
+        interrupts::without_interrupts(|| {
+            let mut writer = WRITER.lock();
+            writeln!(writer, "\n{}", s).expect("writeln failed");
+            for (i, c) in s.chars().enumerate() {
+                unsafe {
+                    let screen_char: ScreenChar = core::ptr::read_volatile(
+                        &writer.buffer.chars[BUFFER_HEIGHT - 2][i] as *const _,
+                    );
+                    assert_eq!(char::from(screen_char.ascii_char), c);
+                }
+            }
+        });
+    }
 }
