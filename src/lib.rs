@@ -1,15 +1,22 @@
 #![no_std]
+#![feature(alloc_error_handler)]
 #![cfg_attr(test, no_main)]
 #![feature(custom_test_frameworks)]
 #![feature(abi_x86_interrupt)]
+#![feature(const_mut_refs)]
 #![test_runner(crate::tests::test_runner)]
 #![reexport_test_harness_main = "test_main"]
+
+extern crate alloc;
 
 pub mod gdt;
 pub mod interrupts;
 pub mod serial;
 pub mod vga;
 pub mod memory;
+pub mod allocator;
+
+use core::alloc::Layout;
 
 #[cfg(test)]
 use bootloader::{entry_point, BootInfo};
@@ -85,6 +92,11 @@ pub mod tests {
         exit_qemu(QemuExitCode::Failed);
         hlt_loop();
     }
+}
+
+#[alloc_error_handler]
+fn alloc_error_handler(layout: Layout) -> ! {
+    panic!("allocation error: {:?}", layout)
 }
 
 #[cfg(test)]

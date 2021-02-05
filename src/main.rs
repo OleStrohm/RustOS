@@ -4,34 +4,46 @@
 #![test_runner(os::tests::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 
+extern crate alloc;
+
+use alloc::{boxed::Box, vec, vec::Vec, rc::Rc};
+
 use bootloader::{entry_point, BootInfo};
-use os::println;
+use memory::BootInfoFrameAllocator;
+use os::{memory, println};
 use x86_64::VirtAddr;
 
 entry_point!(kernel_main);
 
 fn kernel_main(boot_info: &'static BootInfo) -> ! {
     println!("Hello world!");
-
     os::init();
 
     let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
-    let addresses = [
-        0xb8000,
-        0x201008,
-        0x0100_0020_1a10,
-        // boot_info.physical_memory_offset,
-    ];
+    let mut mapper = unsafe { memory::init(phys_mem_offset) };
+    let mut frame_allocator = unsafe { BootInfoFrameAllocator::new(&boot_info.memory_map) };
 
-    for &address in &addresses {
-        let virt = VirtAddr::new(address);
-        let phys = unsafe { os::memory::translate_addr(virt, phys_mem_offset) };
-        println!("{:?} -> {:?}", virt, phys);
+    os::allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initalization failed");
+
+    {
+        let heap_value = Box::new(41);
+        println!("Heap value: {}", heap_value);
+
+        let mut vec = Vec::new();
+        for i in 0..5 {
+            vec.push(i);
+        }
+        println!("Vec: {:?}", vec);
+
+        let reference_counted = Rc::new(vec![1, 2, 3]);
+        let cloned_reference = reference_counted.clone();
+        println!("Current reference count is {}", Rc::strong_count(&cloned_reference));
+        core::mem::drop(reference_counted);
+        println!("Current reference count is {}", Rc::strong_count(&cloned_reference));
     }
 
     #[cfg(test)]
     test_main();
-
     println!("It didn't crash!");
     os::hlt_loop();
 }
