@@ -1,16 +1,56 @@
-use crate::{print, println};
+use crate::println;
+use alloc::sync::Arc;
 use conquer_once::spin::OnceCell;
-use pc_keyboard::{DecodedKey, HandleControl, Keyboard, ScancodeSet1, layouts};
-use core::{
-    pin::Pin,
-    task::{Context, Poll},
-};
+use spin::Mutex;
+use core::{borrow::BorrowMut, future::Future, pin::Pin, task::{Context, Poll, Waker}};
 use crossbeam_queue::ArrayQueue;
-use futures_util::{StreamExt, stream::Stream};
 use futures_util::task::AtomicWaker;
+use futures_util::{stream::Stream, StreamExt};
+use pc_keyboard::{layouts, DecodedKey, HandleControl, Keyboard, ScancodeSet1};
 
 static SCANCODE_QUEUE: OnceCell<ArrayQueue<u8>> = OnceCell::uninit();
+static KEYBOARD_LISTENERS: OnceCell<ArrayQueue<(Arc<Mutex<Option<DecodedKey>>>, Waker)>> = OnceCell::uninit();
 static WAKER: AtomicWaker = AtomicWaker::new();
+
+pub async fn recv() -> DecodedKey {
+    let listener = KeyboardListener::new();
+    let key = listener.await;
+
+    match key {
+        Some(key) => key,
+        None => panic!("Keyboard error or something"),
+    }
+}
+
+struct KeyboardListener {
+    result: Arc<Mutex<Option<DecodedKey>>>,
+}
+
+impl KeyboardListener {
+    pub fn new() -> Self {
+        KeyboardListener { result: Arc::new(Mutex::new(None)) }
+    }
+}
+
+impl Future for KeyboardListener {
+    type Output = Option<DecodedKey>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if let Some(key) = *self.result.lock() {
+            Poll::Ready(Some(key))
+        } else {
+            match KEYBOARD_LISTENERS.try_get() {
+                Ok(queue) => {
+                    match queue.push((self.result.clone(), cx.waker().clone())) {
+                        Ok(()) => Poll::Pending,
+                        Err(_) => Poll::Ready(None),
+                    }
+                },
+                Err(_) => return Poll::Ready(None),
+            }
+        }
+    }
+}
 
 pub struct ScancodeStream {
     _private: (),
@@ -25,16 +65,21 @@ impl ScancodeStream {
     }
 }
 
-pub async fn print_keypresses() {
+pub async fn keyboard_scheduler() {
     let mut scancodes = ScancodeStream::new();
+    KEYBOARD_LISTENERS
+        .try_init_once(|| ArrayQueue::new(100))
+        .expect("ScancodeStream::new should only be called once");
     let mut keyboard = Keyboard::new(layouts::Us104Key, ScancodeSet1, HandleControl::Ignore);
 
     while let Some(scancode) = scancodes.next().await {
         if let Ok(Some(key_event)) = keyboard.add_byte(scancode) {
             if let Some(key) = keyboard.process_keyevent(key_event) {
-                match key {
-                    DecodedKey::Unicode(c) => print!("{}", c),
-                    DecodedKey::RawKey(key) => print!("{:?}", key),
+                let listener_queue = KEYBOARD_LISTENERS.try_get().unwrap();
+                while let Ok((mut result, waker)) = listener_queue.pop() {
+                    let mut result = result.borrow_mut().lock();
+                    *result = Some(key);
+                    waker.wake();
                 }
             }
         }
@@ -49,17 +94,17 @@ impl Stream for ScancodeStream {
             .try_get()
             .expect("Scancode queue not initialized");
 
-        if let Some(scancode) = queue.pop() {
+        if let Ok(scancode) = queue.pop() {
             return Poll::Ready(Some(scancode));
         }
 
         WAKER.register(&cx.waker());
         match queue.pop() {
-            Some(scancode) => {
+            Ok(scancode) => {
                 WAKER.take();
                 Poll::Ready(Some(scancode))
             }
-            None => Poll::Pending,
+            Err(_) => Poll::Pending,
         }
     }
 }

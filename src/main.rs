@@ -8,13 +8,20 @@ extern crate alloc;
 
 use bootloader::{entry_point, BootInfo};
 use memory::BootInfoFrameAllocator;
-use os::{
-    memory, println,
-    task::{executor::Executor, keyboard, Task},
-};
+use os::{memory, print, println, task::{executor::Executor, keyboard, Task}};
+use pc_keyboard::DecodedKey;
 use x86_64::VirtAddr;
 
 entry_point!(kernel_main);
+
+async fn print_keypresses() {
+    loop {
+        match os::task::keyboard::recv().await {
+            DecodedKey::Unicode(c) => print!("{}", c),
+            DecodedKey::RawKey(key) => print!("{:?}", key),
+        }
+    }
+}
 
 async fn async_number() -> u32 {
     42
@@ -35,7 +42,9 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     let mut executor = Executor::new();
     executor.spawn(Task::new(example_task()));
-    executor.spawn(Task::new(keyboard::print_keypresses()));
+    executor.spawn(Task::new(keyboard::keyboard_scheduler()));
+    executor.spawn(Task::new(print_keypresses()));
+    executor.spawn(Task::new(print_keypresses()));
     executor.run();
 }
 
