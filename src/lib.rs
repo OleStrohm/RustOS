@@ -1,4 +1,5 @@
 #![no_std]
+#![feature(wake_trait)]
 #![feature(alloc_error_handler)]
 #![cfg_attr(test, no_main)]
 #![feature(custom_test_frameworks)]
@@ -15,6 +16,7 @@ pub mod serial;
 pub mod vga;
 pub mod memory;
 pub mod allocator;
+pub mod task;
 
 use core::alloc::Layout;
 

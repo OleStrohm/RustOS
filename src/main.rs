@@ -6,46 +6,37 @@
 
 extern crate alloc;
 
-use alloc::{boxed::Box, vec, vec::Vec, rc::Rc};
-
 use bootloader::{entry_point, BootInfo};
 use memory::BootInfoFrameAllocator;
-use os::{memory, println};
+use os::{
+    memory, println,
+    task::{executor::Executor, keyboard, Task},
+};
 use x86_64::VirtAddr;
 
 entry_point!(kernel_main);
 
+async fn async_number() -> u32 {
+    42
+}
+
+async fn example_task() {
+    let number = async_number().await;
+    println!("async number: {}", number);
+}
+
 fn kernel_main(boot_info: &'static BootInfo) -> ! {
     println!("Hello world!");
     os::init();
-
     let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
     let mut mapper = unsafe { memory::init(phys_mem_offset) };
     let mut frame_allocator = unsafe { BootInfoFrameAllocator::new(&boot_info.memory_map) };
-
     os::allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initalization failed");
 
-    {
-        let heap_value = Box::new(41);
-        println!("Heap value: {}", heap_value);
-
-        let mut vec = Vec::new();
-        for i in 0..5 {
-            vec.push(i);
-        }
-        println!("Vec: {:?}", vec);
-
-        let reference_counted = Rc::new(vec![1, 2, 3]);
-        let cloned_reference = reference_counted.clone();
-        println!("Current reference count is {}", Rc::strong_count(&cloned_reference));
-        core::mem::drop(reference_counted);
-        println!("Current reference count is {}", Rc::strong_count(&cloned_reference));
-    }
-
-    #[cfg(test)]
-    test_main();
-    println!("It didn't crash!");
-    os::hlt_loop();
+    let mut executor = Executor::new();
+    executor.spawn(Task::new(example_task()));
+    executor.spawn(Task::new(keyboard::print_keypresses()));
+    executor.run();
 }
 
 #[cfg(test)]
