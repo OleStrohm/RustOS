@@ -1,7 +1,7 @@
 pub mod bump;
 pub mod linked_list;
+// pub mod fixed_size_block;
 
-use bump::BumpAllocator;
 use linked_list::LinkedListAllocator;
 use x86_64::{
     structures::paging::{

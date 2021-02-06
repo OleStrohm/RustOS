@@ -1,6 +1,11 @@
 use super::{Locked, align_up};
-use core::{alloc::{GlobalAlloc, Layout}, mem};
-use core::ptr;
+use core::alloc::{GlobalAlloc, Layout};
+use core::{ptr, mem};
+
+// Currently using the linked_list_allocator crate
+// Want to improve this module to be as useful and
+// then we can switch to this
+// Need to support merging of nodes
 
 struct ListNode {
     size: usize,
