@@ -1,6 +1,7 @@
 pub mod executor;
 pub mod keyboard;
 pub mod simple_executor;
+pub mod thread;
 
 use alloc::boxed::Box;
 use core::sync::atomic::{AtomicU64, Ordering};

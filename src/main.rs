@@ -40,6 +40,8 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     let mut frame_allocator = unsafe { BootInfoFrameAllocator::new(&boot_info.memory_map) };
     os::allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initalization failed");
 
+    println!("{:?}", unsafe { os::task::thread::Registers::read() });
+
     let mut executor = Executor::new();
     executor.spawn(Task::new(example_task()));
     executor.spawn(Task::new(keyboard::keyboard_scheduler()));
