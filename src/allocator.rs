@@ -13,7 +13,7 @@ use x86_64::{
 #[global_allocator]
 static ALLOCATOR: Locked<LinkedListAllocator> = Locked::new(LinkedListAllocator::new());
 
-pub const HEAP_START: usize = 0x4444_4444_4444;
+pub const HEAP_START: usize = 0x4444_4444_0000;
 pub const HEAP_SIZE: usize = 100 * 1024;
 
 pub struct Locked<A> {
@@ -33,15 +33,6 @@ impl<A> core::ops::Deref for Locked<A> {
 
     fn deref(&self) -> &Self::Target {
         &self.inner
-    }
-}
-
-fn align_up(addr: usize, align: usize) -> usize {
-    let remainder = addr % align;
-    if remainder == 0 {
-        addr
-    } else {
-        addr - remainder + align
     }
 }
 
@@ -70,4 +61,13 @@ pub fn init_heap(
     }
 
     Ok(())
+}
+
+fn align_up(addr: usize, align: usize) -> usize {
+    let remainder = addr % align;
+    if remainder == 0 {
+        addr
+    } else {
+        addr - remainder + align
+    }
 }

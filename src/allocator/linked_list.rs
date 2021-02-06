@@ -1,6 +1,6 @@
-use super::{Locked, align_up};
-use core::alloc::{GlobalAlloc, Layout};
-use core::{ptr, mem};
+use super::{align_up, Locked};
+use alloc::alloc::{GlobalAlloc, Layout};
+use core::{mem, ptr};
 
 // Currently using the linked_list_allocator crate
 // Want to improve this module to be as useful and
@@ -57,7 +57,7 @@ impl LinkedListAllocator {
         while let Some(ref mut region) = current.next {
             if let Ok(alloc_start) = Self::alloc_from_region(&region, size, align) {
                 let next = region.next.take();
-                let ret =  Some((current.next.take().unwrap(), alloc_start));
+                let ret = Some((current.next.take().unwrap(), alloc_start));
                 current.next = next;
                 return ret;
             } else {
@@ -81,7 +81,7 @@ impl LinkedListAllocator {
             return Err(());
         }
 
-        Ok(alloc_end)
+        Ok(alloc_start)
     }
 
     fn size_align(layout: Layout) -> (usize, usize) {
