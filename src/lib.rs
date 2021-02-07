@@ -1,4 +1,5 @@
 #![no_std]
+#![feature(never_type)]
 #![feature(asm)]
 #![feature(wake_trait)]
 #![feature(alloc_error_handler)]

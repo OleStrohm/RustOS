@@ -8,7 +8,10 @@ extern crate alloc;
 
 use bootloader::{entry_point, BootInfo};
 use memory::BootInfoFrameAllocator;
-use os::{memory, print, println, task::{executor::Executor, keyboard, Task}};
+use os::{
+    memory, print, println,
+    task::{executor::Executor, keyboard, Task},
+};
 use pc_keyboard::DecodedKey;
 use x86_64::VirtAddr;
 
@@ -33,14 +36,18 @@ async fn example_task() {
 }
 
 fn kernel_main(boot_info: &'static BootInfo) -> ! {
-    println!("Hello world!");
     os::init();
     let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
     let mut mapper = unsafe { memory::init(phys_mem_offset) };
     let mut frame_allocator = unsafe { BootInfoFrameAllocator::new(&boot_info.memory_map) };
     os::allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initalization failed");
+    unsafe {
+        os::task::thread::Thread::init();
+    }
 
-    println!("{:?}", unsafe { os::task::thread::Registers::read() });
+    {
+        println!("Starting kernel!");
+    }
 
     let mut executor = Executor::new();
     executor.spawn(Task::new(example_task()));
