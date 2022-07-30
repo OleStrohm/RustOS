@@ -10,7 +10,7 @@ use bootloader::{entry_point, BootInfo};
 use memory::BootInfoFrameAllocator;
 use os::{
     memory, print, println,
-    task::{executor::Executor, keyboard, Task},
+    task::{executor::Executor, keyboard, scheduler, Task},
 };
 use pc_keyboard::DecodedKey;
 use x86_64::VirtAddr;
@@ -37,17 +37,30 @@ async fn example_task() {
 
 fn kernel_main(boot_info: &'static BootInfo) -> ! {
     os::init();
+    if cfg!(test) {
+        #[cfg(test)]
+        test_main();
+        os::hlt_loop();
+    }
     let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
     let mut mapper = unsafe { memory::init(phys_mem_offset) };
     let mut frame_allocator = unsafe { BootInfoFrameAllocator::new(&boot_info.memory_map) };
     os::allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initalization failed");
-    unsafe {
-        os::task::thread::Thread::init();
+    scheduler::init_scheduler(mapper, frame_allocator);
+    fn slow() {
+        let mut sum: i32 = 0;
+        for i in 0..400000 {
+            sum = sum.wrapping_add(i);
+        }
+        //assert_eq!(sum, 32);
     }
 
-    {
-        println!("Starting kernel!");
-    }
+    scheduler::spawn(|| {
+        loop {
+            slow();
+            print!("2");
+        }
+    });
 
     let mut executor = Executor::new();
     executor.spawn(Task::new(example_task()));
@@ -64,15 +77,15 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+#[panic_handler]
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    os::tests::test_panic_handler(info);
+}
+
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
     println!("{}", info);
     os::hlt_loop();
-}
-
-#[cfg(test)]
-#[panic_handler]
-fn panic(info: &core::panic::PanicInfo) -> ! {
-    os::tests::test_panic_handler(info);
 }

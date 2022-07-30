@@ -2,7 +2,7 @@ use crate::println;
 use alloc::sync::Arc;
 use conquer_once::spin::OnceCell;
 use spin::Mutex;
-use core::{borrow::BorrowMut, future::Future, pin::Pin, task::{Context, Poll, Waker}};
+use core::{future::Future, pin::Pin, task::{Context, Poll, Waker}};
 use crossbeam_queue::ArrayQueue;
 use futures_util::task::AtomicWaker;
 use futures_util::{stream::Stream, StreamExt};
@@ -76,8 +76,8 @@ pub async fn keyboard_scheduler() {
         if let Ok(Some(key_event)) = keyboard.add_byte(scancode) {
             if let Some(key) = keyboard.process_keyevent(key_event) {
                 let listener_queue = KEYBOARD_LISTENERS.try_get().unwrap();
-                while let Ok((mut result, waker)) = listener_queue.pop() {
-                    let mut result = result.borrow_mut().lock();
+                while let Some((result, waker)) = listener_queue.pop() {
+                    let mut result = result.lock();
                     *result = Some(key);
                     waker.wake();
                 }
@@ -94,17 +94,17 @@ impl Stream for ScancodeStream {
             .try_get()
             .expect("Scancode queue not initialized");
 
-        if let Ok(scancode) = queue.pop() {
+        if let Some(scancode) = queue.pop() {
             return Poll::Ready(Some(scancode));
         }
 
         WAKER.register(&cx.waker());
         match queue.pop() {
-            Ok(scancode) => {
+            Some(scancode) => {
                 WAKER.take();
                 Poll::Ready(Some(scancode))
             }
-            Err(_) => Poll::Pending,
+            None => Poll::Pending,
         }
     }
 }

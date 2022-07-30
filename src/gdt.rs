@@ -1,9 +1,8 @@
-use crate::task::thread::{Stack, ThreadId};
 use core::cell::UnsafeCell;
-use lazy_static::{__Deref, lazy_static};
+use lazy_static::lazy_static;
 use spin::Mutex;
-use x86_64::instructions::segmentation::set_cs;
 use x86_64::instructions::tables::load_tss;
+use x86_64::registers::segmentation::{Segment, CS};
 use x86_64::structures::gdt::{Descriptor, GlobalDescriptorTable, SegmentSelector};
 use x86_64::structures::tss::TaskStateSegment;
 use x86_64::VirtAddr;
@@ -26,7 +25,7 @@ lazy_static! {
     static ref GDT: (GlobalDescriptorTable, Selectors) = {
         let mut gdt = GlobalDescriptorTable::new();
         let code_selector = gdt.add_entry(Descriptor::kernel_code_segment());
-        let current_tss = unsafe { gdt.add_entry(Descriptor::tss_segment(&*TSS.lock().get())) };
+        let current_tss = gdt.add_entry(Descriptor::tss_segment(unsafe { &*TSS.lock().get() }));
         (
             gdt,
             Selectors {
@@ -49,22 +48,11 @@ pub fn init() {
             code_selector,
             current_tss,
         },
-    ) = GDT.deref();
+    ) = &*GDT;
 
     gdt.load();
     unsafe {
-        set_cs(*code_selector);
+        CS::set_reg(*code_selector);
         load_tss(*current_tss);
     }
-}
-
-pub unsafe fn get_int_stack_addr() -> VirtAddr {
-    (*TSS.lock().get()).interrupt_stack_table[0]
-}
-
-pub unsafe fn context_switch_to(tid: ThreadId, stack: Stack) {
-    let mut tss = TSS.lock();
-    tss.get_mut().privilege_stack_table[0] = stack.rsp;
-
-    init();
 }

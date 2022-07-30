@@ -38,7 +38,7 @@ lazy_static! {
     };
 }
 
-extern "x86-interrupt" fn test_double_fault_handler(_: &mut InterruptStackFrame, _: u64) -> ! {
+extern "x86-interrupt" fn test_double_fault_handler(_: InterruptStackFrame, _: u64) -> ! {
     serial_println!("[ok]");
     exit_qemu(os::QemuExitCode::Success);
     loop {}

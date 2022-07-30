@@ -1,106 +1,151 @@
-use alloc::boxed::Box;
-use alloc::{
-    alloc::{alloc, Layout},
-    collections::{BTreeMap, VecDeque},
-};
 use core::sync::atomic::{AtomicU64, Ordering};
-use lazy_static::lazy_static;
-use spin::Mutex;
+use x86_64::structures::idt::InterruptStackFrameValue;
+use x86_64::structures::paging::{
+    mapper, FrameAllocator, Mapper, Page, PageTableFlags as Flags, Size4KiB,
+};
 use x86_64::VirtAddr;
 
-lazy_static! {
-    static ref THREADS: Mutex<BTreeMap<ThreadId, Thread>> = Mutex::new(BTreeMap::new());
-    static ref THREAD_QUEUE: Mutex<VecDeque<ThreadId>> = Mutex::new(VecDeque::new());
-}
-static THREAD_ALIGN: usize = 4096;
-lazy_static! {
-    static ref CURRENT_THREAD: Mutex<ThreadId> = Mutex::new(ThreadId::new());
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ThreadRegisters {
+    pub rax: u64,
+    pub rbx: u64,
+    pub rcx: u64,
+    pub rdx: u64,
+    pub rsi: u64,
+    pub rdi: u64,
+    pub rsp: u64,
+    pub rsp0: u64,
+    pub rbp: u64,
+    pub r8: u64,
+    pub r9: u64,
+    pub r10: u64,
+    pub r11: u64,
+    pub r12: u64,
+    pub r13: u64,
+    pub r14: u64,
+    pub r15: u64,
+    pub rip: u64,
+    pub cs: u64,
+    pub cr3: u64,
+    pub rflags: u64,
 }
 
-#[derive(Debug)]
+impl ThreadRegisters {
+    pub fn new_kernel(stack_top: u64) -> Self {
+        Self {
+            cs: 0x08,
+            rflags: 0x0202,
+            rsp: stack_top,
+            rsp0: stack_top,
+            ..Default::default()
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct Thread {
-    tid: ThreadId,
-    stack: Option<Stack>,
-    stack_bounds: Option<StackBounds>,
+    pub tid: ThreadId,
+    //pub regs: ThreadRegisters,
+    pub stack_frame: Option<InterruptStackFrameValue>,
+    pub regs: Option<Registers>,
 }
 
 impl Thread {
-    pub fn spawn(entrypoint: Box<dyn Fn() -> !>) {
-        let thread = Thread::new(4096 * 10);
-        THREADS.lock().insert(thread.tid, thread);
-    }
+    pub fn create_entrypoint(
+        mapper: &mut impl Mapper<Size4KiB>,
+        frame_allocator: &mut impl FrameAllocator<Size4KiB>,
+        entrypoint: fn() -> !,
+    ) -> Self {
+        let stack = Stack::allocate(10, mapper, frame_allocator);
+        // /*(stack_frame, regs) = */stack.setup_for_entry(entrypoint);
 
-    pub(super) unsafe fn create_root_thread() {
-        Thread {
-            tid: ThreadId(0),
-            stack: None,
-            stack_bounds: None,
-        };
-    }
-
-    fn new(size: usize) -> Thread {
-        let stack = Stack::allocate(size);
         Thread {
             tid: ThreadId::new(),
-            stack: Some(stack),
-            stack_bounds: Some(StackBounds::from_stack_size(stack, size)),
+            stack_frame: Some(InterruptStackFrameValue {
+                instruction_pointer: VirtAddr::new(entrypoint as u64),
+                code_segment: 8,
+                cpu_flags: 0x200,
+                stack_pointer: stack.end,
+                stack_segment: 0,
+            }),
+            regs: Some(Registers::default()),
         }
     }
 
-    pub unsafe fn switch_to(new_tid: ThreadId, current_stack: Stack) {
-        let current_tid = *CURRENT_THREAD.lock();
-        if new_tid == current_tid {
-            return;
+    pub fn create_root_thread() -> Thread {
+        Thread {
+            tid: ThreadId::initial(),
+            stack_frame: None,
+            regs: None,
         }
-
-        // store registers with the thread
-        let mut thread_map = THREADS.lock();
-        let mut current = thread_map.get_mut(&new_tid).unwrap();
-        current.stack = Some(current_stack);
-        let new = thread_map.get(&new_tid).unwrap();
-
-        crate::gdt::context_switch_to(new_tid, new.stack.unwrap());
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct Stack {
-    rsp: VirtAddr,
+    pub end: VirtAddr,
 }
 
 impl Stack {
-    pub unsafe fn new(rsp: VirtAddr) -> Self {
-        Stack { rsp }
+    fn allocate(
+        size_in_pages: u64,
+        mapper: &mut impl Mapper<Size4KiB>,
+        frame_allocator: &mut impl FrameAllocator<Size4KiB>,
+    ) -> Self {
+        Self::alloc_stack(size_in_pages, mapper, frame_allocator).unwrap()
     }
 
-    pub fn allocate(size: usize) -> Self {
-        unsafe {
-            Stack::new(VirtAddr::new(
-                alloc(Layout::from_size_align(size, THREAD_ALIGN).unwrap()) as u64,
-            ))
+    fn alloc_stack(
+        size_in_pages: u64,
+        mapper: &mut impl Mapper<Size4KiB>,
+        frame_allocator: &mut impl FrameAllocator<Size4KiB>,
+    ) -> Result<Stack, mapper::MapToError<Size4KiB>> {
+        static STACK_ALLOC_NEXT: AtomicU64 = AtomicU64::new(0x_5555_5555_0000);
+
+        let guard_page_start = STACK_ALLOC_NEXT.fetch_add(
+            (size_in_pages + 1) * Page::<Size4KiB>::SIZE,
+            Ordering::SeqCst,
+        );
+        let guard_page = Page::from_start_address(VirtAddr::new(guard_page_start))
+            .expect("`STACK_ALLOC_NEXT` not page aligned");
+
+        let stack_start = guard_page + 1;
+        let stack_end = stack_start + size_in_pages;
+        let flags = Flags::PRESENT | Flags::WRITABLE;
+        for page in Page::range(stack_start, stack_end) {
+            let frame = frame_allocator
+                .allocate_frame()
+                .ok_or(mapper::MapToError::FrameAllocationFailed)?;
+            unsafe {
+                mapper.map_to(page, frame, flags, frame_allocator)?.flush();
+            }
         }
-    }
-
-    pub fn get_rsp(&self) -> VirtAddr {
-        self.rsp
-    }
-
-    pub fn setup_for_entry() {}
-
-    unsafe fn push<T>(&mut self, value: T) {
-        self.rsp -= core::mem::size_of::<T>();
-        let ptr: *mut T = self.rsp.as_mut_ptr();
-        ptr.write(value);
+        Ok(Stack {
+            end: stack_end.start_address(),
+        })
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(transparent)]
 pub struct ThreadId(u64);
 
 impl ThreadId {
     fn new() -> Self {
         static NEXT_ID: AtomicU64 = AtomicU64::new(1);
         ThreadId(NEXT_ID.fetch_add(1, Ordering::Relaxed))
+    }
+
+    pub fn initial() -> Self {
+        ThreadId(0)
+    }
+
+    pub unsafe fn from_u64(tid: u64) -> Self {
+        ThreadId(tid)
+    }
+
+    pub fn as_u64(self) -> u64 {
+        self.0
     }
 }
 
@@ -111,11 +156,23 @@ impl Into<u64> for ThreadId {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct StackBounds(VirtAddr, VirtAddr);
-
-impl StackBounds {
-    fn from_stack_size(stack: Stack, size: usize) -> Self {
-        StackBounds(stack.get_rsp() - size, stack.get_rsp())
-    }
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct Registers {
+    rax: u64,
+    rbx: u64,
+    rcx: u64,
+    rdx: u64,
+    rdi: u64,
+    rsi: u64,
+    rsp: u64,
+    rbp: u64,
+    r8: u64,
+    r9: u64,
+    r10: u64,
+    r11: u64,
+    r12: u64,
+    r13: u64,
+    r14: u64,
+    r15: u64,
 }

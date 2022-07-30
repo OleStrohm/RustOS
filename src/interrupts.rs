@@ -1,9 +1,13 @@
+use core::arch::asm;
+
+use crate::task::scheduler::{self, current_thread, SCHEDULER};
+use crate::task::thread::Registers;
+use crate::{gdt, hlt_loop, println};
+use core::mem::{self, size_of};
 use lazy_static::lazy_static;
-use pic8259_simple::ChainedPics;
+use pic8259::ChainedPics;
 use spin;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
-
-use crate::{gdt, hlt_loop, println};
 
 pub const PIC_1_OFFSET: u8 = 32;
 pub const PIC_2_OFFSET: u8 = PIC_1_OFFSET + 8;
@@ -34,8 +38,10 @@ lazy_static! {
             idt.double_fault
                 .set_handler_fn(double_fault_handler)
                 .set_stack_index(gdt::DOUBLE_FAULT_IST_INDEX);
+            idt[InterruptIndex::Timer.as_usize()].set_handler_fn(mem::transmute::<_, _>(
+                timer_interrupt_handler as extern "x86-interrupt" fn(),
+            ));
         }
-        idt[InterruptIndex::Timer.as_usize()].set_handler_fn(timer_interrupt_handler);
         idt[InterruptIndex::Keyboard.as_usize()].set_handler_fn(keyboard_interrupt_handler);
 
         idt
@@ -50,52 +56,110 @@ pub fn init() {
     x86_64::instructions::interrupts::enable();
 }
 
-extern "x86-interrupt" fn breakpoint_handler(stack_frame: &mut InterruptStackFrame) {
-    println!("EXCEPTION:BREAKPOINT\n{:#?}", stack_frame);
+extern "x86-interrupt" fn breakpoint_handler(stack_frame: InterruptStackFrame) {
+    println!("EXCEPTION: BREAKPOINT\n{:#?}", stack_frame);
 }
 
 extern "x86-interrupt" fn page_fault_handler(
-    stack_frame: &mut InterruptStackFrame,
+    stack_frame: InterruptStackFrame,
     error_code: PageFaultErrorCode,
 ) {
     use x86_64::registers::control::Cr2;
 
+    println!("Thread id: {}", current_thread().as_u64());
     println!("Exception: PAGE FAULT");
     println!("Accessed Address: {:?}", Cr2::read());
-    println!("Error code: {:?}", error_code);
-    println!("{:#?}", stack_frame);
+    println!("Error code: {error_code:?}");
+    println!("{stack_frame:#?}");
     hlt_loop();
 }
 
 extern "x86-interrupt" fn double_fault_handler(
-    stack_frame: &mut InterruptStackFrame,
-    _error_code: u64,
+    stack_frame: InterruptStackFrame,
+    error_code: u64,
 ) -> ! {
-    panic!("EXCEPTION: DOUBLE FAULT\n{:#?}", stack_frame);
+    panic!("EXCEPTION({error_code}: DOUBLE FAULT\n{stack_frame:#?}");
 }
 
-extern "x86-interrupt" fn timer_interrupt_handler(stack_frame: &mut InterruptStackFrame) {
-    println!("TIMER0: {:?}", stack_frame);
-    println!("TIMER1: {:?}", stack_frame);
-    println!("");
-
-    // interrupt_return();
+#[naked]
+extern "x86-interrupt" fn timer_interrupt_handler() {
+    unsafe {
+        asm!(
+        "
+        push r15
+        push r14
+        push r13
+        push r12
+        push r11
+        push r10
+        push r9
+        push r8
+        push rbp
+        push rsp
+        push rsi
+        push rdi
+        push rdx
+        push rcx
+        push rbx
+        push rax
+        mov rdi, rsp
+        add rdi, {regs_size}
+        mov rsi, rsp
+        sub rsp, 0x8 // 16-byte aligned
+        cld
+        call {handler}
+        add rsp, 0x8
+        pop rax
+        pop rbx
+        pop rcx
+        pop rdx
+        pop rdi
+        pop rsi
+        add rsp, 0x8 // Skip loading this rsp, TODO: probably not needed
+        pop rbp
+        pop r8
+        pop r9
+        pop r10
+        pop r11
+        pop r12
+        pop r13
+        pop r14
+        pop r15
+        iretq
+        ",
+            handler = sym handle_timer,
+            regs_size = const size_of::<Registers>(),
+            options(noreturn)
+        )
+    }
 }
 
-extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: &mut InterruptStackFrame) {
+fn handle_timer(stack_frame: &mut InterruptStackFrame, regs: &mut Registers) {
+    if let Some(thread) = scheduler::schedule() {
+        unsafe {
+            stack_frame.as_mut().update(|frame| {
+                SCHEDULER.lock().add_paused_thread(frame, regs, thread);
+            });
+        }
+    }
+
+    interrupt_return(InterruptIndex::Timer);
+}
+
+extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
     use x86_64::instructions::port::Port;
 
     let mut port = Port::new(0x60);
     let scancode: u8 = unsafe { port.read() };
     crate::task::keyboard::add_scancode(scancode);
 
-    interrupt_return();
+    interrupt_return(InterruptIndex::Keyboard);
 }
 
-fn interrupt_return() {
+// TODO: Include in macro
+fn interrupt_return(interrupt: InterruptIndex) {
     unsafe {
-        PICS.lock()
-            .notify_end_of_interrupt(InterruptIndex::Timer.as_u8());
+        PICS.lock().notify_end_of_interrupt(interrupt.as_u8());
     }
 }
 

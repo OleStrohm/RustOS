@@ -1,12 +1,13 @@
 #![no_std]
 #![feature(never_type)]
-#![feature(asm)]
-#![feature(wake_trait)]
 #![feature(alloc_error_handler)]
 #![cfg_attr(test, no_main)]
 #![feature(custom_test_frameworks)]
 #![feature(abi_x86_interrupt)]
 #![feature(const_mut_refs)]
+#![feature(naked_functions)]
+#![feature(asm_sym)]
+#![feature(asm_const)]
 #![test_runner(crate::tests::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 
@@ -92,7 +93,7 @@ pub mod tests {
 
     pub fn test_panic_handler(info: &core::panic::PanicInfo) -> ! {
         serial_println!("[FAILED]\n");
-        serial_println!("Error: {}\n", info);
+        serial_println!("Error: {info}\n");
         exit_qemu(QemuExitCode::Failed);
         hlt_loop();
     }
@@ -100,7 +101,7 @@ pub mod tests {
 
 #[alloc_error_handler]
 fn alloc_error_handler(layout: Layout) -> ! {
-    panic!("allocation error: {:?}", layout)
+    panic!("allocation error: {layout:?}")
 }
 
 #[cfg(test)]
