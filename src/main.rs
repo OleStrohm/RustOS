@@ -7,13 +7,11 @@
 extern crate alloc;
 
 use bootloader::{entry_point, BootInfo};
-use memory::BootInfoFrameAllocator;
 use os::{
-    memory, print, println,
+    print, println,
     task::{executor::Executor, keyboard, scheduler, Task},
 };
 use pc_keyboard::DecodedKey;
-use x86_64::VirtAddr;
 
 entry_point!(kernel_main);
 
@@ -36,17 +34,12 @@ async fn example_task() {
 }
 
 fn kernel_main(boot_info: &'static BootInfo) -> ! {
-    os::init();
+    os::init(boot_info);
     if cfg!(test) {
         #[cfg(test)]
         test_main();
         os::hlt_loop();
     }
-    let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
-    let mut mapper = unsafe { memory::init(phys_mem_offset) };
-    let mut frame_allocator = unsafe { BootInfoFrameAllocator::new(&boot_info.memory_map) };
-    os::allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initalization failed");
-    scheduler::init_scheduler(mapper, frame_allocator);
     fn slow() {
         let mut sum: i32 = 0;
         for i in 0..400000 {
@@ -55,11 +48,9 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
         //assert_eq!(sum, 32);
     }
 
-    scheduler::spawn(|| {
-        loop {
-            slow();
-            print!("2");
-        }
+    scheduler::spawn(|| loop {
+        slow();
+        print!("2");
     });
 
     let mut executor = Executor::new();

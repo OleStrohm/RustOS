@@ -1,6 +1,6 @@
 use core::arch::asm;
 
-use crate::task::scheduler::{self, current_thread, SCHEDULER};
+use crate::task::scheduler::{self, current_thread, SCHEDULER, add_paused_thread};
 use crate::task::thread::Registers;
 use crate::{gdt, hlt_loop, println};
 use core::mem::{self, size_of};
@@ -95,7 +95,6 @@ extern "x86-interrupt" fn timer_interrupt_handler() {
         push r9
         push r8
         push rbp
-        push rsp
         push rsi
         push rdi
         push rdx
@@ -105,17 +104,14 @@ extern "x86-interrupt" fn timer_interrupt_handler() {
         mov rdi, rsp
         add rdi, {regs_size}
         mov rsi, rsp
-        sub rsp, 0x8 // 16-byte aligned
         cld
         call {handler}
-        add rsp, 0x8
         pop rax
         pop rbx
         pop rcx
         pop rdx
         pop rdi
         pop rsi
-        add rsp, 0x8 // Skip loading this rsp, TODO: probably not needed
         pop rbp
         pop r8
         pop r9
@@ -138,7 +134,7 @@ fn handle_timer(stack_frame: &mut InterruptStackFrame, regs: &mut Registers) {
     if let Some(thread) = scheduler::schedule() {
         unsafe {
             stack_frame.as_mut().update(|frame| {
-                SCHEDULER.lock().add_paused_thread(frame, regs, thread);
+                add_paused_thread(frame, regs, thread);
             });
         }
     }

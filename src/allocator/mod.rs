@@ -71,3 +71,14 @@ fn align_up(addr: usize, align: usize) -> usize {
         addr - remainder + align
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use alloc::boxed::Box;
+
+    #[test_case]
+    fn simple_box() {
+        let b = Box::new(5);
+        assert_eq!(*b, 5);
+    }
+}

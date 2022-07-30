@@ -58,18 +58,15 @@ pub struct ScancodeStream {
 
 impl ScancodeStream {
     pub fn new() -> Self {
-        SCANCODE_QUEUE
-            .try_init_once(|| ArrayQueue::new(100))
-            .expect("ScancodeStream::new should only be called once");
+        SCANCODE_QUEUE.init_once(|| ArrayQueue::new(100));
         ScancodeStream { _private: () }
     }
 }
 
 pub async fn keyboard_scheduler() {
     let mut scancodes = ScancodeStream::new();
-    KEYBOARD_LISTENERS
-        .try_init_once(|| ArrayQueue::new(100))
-        .expect("ScancodeStream::new should only be called once");
+    KEYBOARD_LISTENERS.init_once(|| ArrayQueue::new(100));
+
     let mut keyboard = Keyboard::new(layouts::Us104Key, ScancodeSet1, HandleControl::Ignore);
 
     while let Some(scancode) = scancodes.next().await {

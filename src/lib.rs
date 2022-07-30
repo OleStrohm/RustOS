@@ -13,32 +13,43 @@
 
 extern crate alloc;
 
+pub mod allocator;
+pub mod backtrace;
 pub mod gdt;
 pub mod interrupts;
-pub mod serial;
-pub mod vga;
 pub mod memory;
-pub mod allocator;
+pub mod serial;
 pub mod task;
+pub mod vga;
 
+use self::memory::BootInfoFrameAllocator;
+use bootloader::BootInfo;
 use core::alloc::Layout;
+use task::scheduler;
+use x86_64::VirtAddr;
 
 #[cfg(test)]
-use bootloader::{entry_point, BootInfo};
+use bootloader::entry_point;
 
 #[cfg(test)]
 entry_point!(test_kernel_main);
 
 #[cfg(test)]
-fn test_kernel_main(_: &'static BootInfo) -> ! {
-    init();
+fn test_kernel_main(bootinfo: &'static BootInfo) -> ! {
+    init(bootinfo);
     test_main();
     hlt_loop();
 }
 
-pub fn init() {
+pub fn init(boot_info: &'static BootInfo) {
     interrupts::init();
     gdt::init();
+    let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
+    let mut mapper = unsafe { memory::init(phys_mem_offset) };
+    let mut frame_allocator = unsafe { BootInfoFrameAllocator::new(&boot_info.memory_map) };
+    allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initalization failed");
+
+    scheduler::init_scheduler(mapper, frame_allocator);
 }
 
 pub fn hlt_loop() -> ! {
@@ -64,7 +75,7 @@ pub fn exit_qemu(exit_code: QemuExitCode) {
 }
 
 pub mod tests {
-    use super::{exit_qemu, QemuExitCode, hlt_loop};
+    use super::{exit_qemu, hlt_loop, QemuExitCode};
     use crate::{serial_print, serial_println};
 
     pub trait Testable {

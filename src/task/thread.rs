@@ -5,43 +5,6 @@ use x86_64::structures::paging::{
 };
 use x86_64::VirtAddr;
 
-#[derive(Debug, Default, Clone, Copy)]
-pub struct ThreadRegisters {
-    pub rax: u64,
-    pub rbx: u64,
-    pub rcx: u64,
-    pub rdx: u64,
-    pub rsi: u64,
-    pub rdi: u64,
-    pub rsp: u64,
-    pub rsp0: u64,
-    pub rbp: u64,
-    pub r8: u64,
-    pub r9: u64,
-    pub r10: u64,
-    pub r11: u64,
-    pub r12: u64,
-    pub r13: u64,
-    pub r14: u64,
-    pub r15: u64,
-    pub rip: u64,
-    pub cs: u64,
-    pub cr3: u64,
-    pub rflags: u64,
-}
-
-impl ThreadRegisters {
-    pub fn new_kernel(stack_top: u64) -> Self {
-        Self {
-            cs: 0x08,
-            rflags: 0x0202,
-            rsp: stack_top,
-            rsp0: stack_top,
-            ..Default::default()
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct Thread {
     pub tid: ThreadId,
@@ -165,7 +128,6 @@ pub struct Registers {
     rdx: u64,
     rdi: u64,
     rsi: u64,
-    rsp: u64,
     rbp: u64,
     r8: u64,
     r9: u64,
