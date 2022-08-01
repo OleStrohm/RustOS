@@ -1,6 +1,6 @@
 use core::arch::asm;
 
-use crate::task::scheduler::{self, current_thread, SCHEDULER, add_paused_thread};
+use crate::task::scheduler::{self, add_paused_thread, current_thread};
 use crate::task::thread::Registers;
 use crate::{gdt, hlt_loop, println};
 use core::mem::{self, size_of};

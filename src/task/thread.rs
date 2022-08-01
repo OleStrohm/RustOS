@@ -8,7 +8,6 @@ use x86_64::VirtAddr;
 #[derive(Debug, Clone, Copy)]
 pub struct Thread {
     pub tid: ThreadId,
-    //pub regs: ThreadRegisters,
     pub stack_frame: Option<InterruptStackFrameValue>,
     pub regs: Option<Registers>,
 }

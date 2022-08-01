@@ -23,4 +23,3 @@ fn panic(_: &core::panic::PanicInfo) -> ! {
     exit_qemu(os::QemuExitCode::Success);
     loop {}
 }
-

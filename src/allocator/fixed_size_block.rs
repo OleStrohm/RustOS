@@ -1,4 +1,8 @@
-use core::{alloc::{GlobalAlloc, Layout}, mem, ptr, ptr::NonNull};
+use core::{
+    alloc::{GlobalAlloc, Layout},
+    mem, ptr,
+    ptr::NonNull,
+};
 
 use super::Locked;
 
@@ -70,7 +74,7 @@ unsafe impl GlobalAlloc for Locked<FixedSizeBlockAllocator> {
                 let new_node_ptr = ptr as *mut ListNode;
                 new_node_ptr.write(new_node);
                 allocator.list_heads[index] = Some(&mut *new_node_ptr);
-            },
+            }
             None => {
                 let ptr = NonNull::new(ptr).unwrap();
                 allocator.fallback_allocator.deallocate(ptr, layout);

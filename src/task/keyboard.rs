@@ -1,15 +1,20 @@
 use crate::println;
 use alloc::sync::Arc;
 use conquer_once::spin::OnceCell;
-use spin::Mutex;
-use core::{future::Future, pin::Pin, task::{Context, Poll, Waker}};
+use core::{
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll, Waker},
+};
 use crossbeam_queue::ArrayQueue;
 use futures_util::task::AtomicWaker;
 use futures_util::{stream::Stream, StreamExt};
 use pc_keyboard::{layouts, DecodedKey, HandleControl, Keyboard, ScancodeSet1};
+use spin::Mutex;
 
 static SCANCODE_QUEUE: OnceCell<ArrayQueue<u8>> = OnceCell::uninit();
-static KEYBOARD_LISTENERS: OnceCell<ArrayQueue<(Arc<Mutex<Option<DecodedKey>>>, Waker)>> = OnceCell::uninit();
+static KEYBOARD_LISTENERS: OnceCell<ArrayQueue<(Arc<Mutex<Option<DecodedKey>>>, Waker)>> =
+    OnceCell::uninit();
 static WAKER: AtomicWaker = AtomicWaker::new();
 
 pub async fn recv() -> DecodedKey {
@@ -28,7 +33,9 @@ struct KeyboardListener {
 
 impl KeyboardListener {
     pub fn new() -> Self {
-        KeyboardListener { result: Arc::new(Mutex::new(None)) }
+        KeyboardListener {
+            result: Arc::new(Mutex::new(None)),
+        }
     }
 }
 
@@ -40,11 +47,9 @@ impl Future for KeyboardListener {
             Poll::Ready(Some(key))
         } else {
             match KEYBOARD_LISTENERS.try_get() {
-                Ok(queue) => {
-                    match queue.push((self.result.clone(), cx.waker().clone())) {
-                        Ok(()) => Poll::Pending,
-                        Err(_) => Poll::Ready(None),
-                    }
+                Ok(queue) => match queue.push((self.result.clone(), cx.waker().clone())) {
+                    Ok(()) => Poll::Pending,
+                    Err(_) => Poll::Ready(None),
                 },
                 Err(_) => return Poll::Ready(None),
             }

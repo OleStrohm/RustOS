@@ -1,8 +1,8 @@
 pub mod executor;
 pub mod keyboard;
+pub mod scheduler;
 pub mod simple_executor;
 pub mod thread;
-pub mod scheduler;
 
 use alloc::boxed::Box;
 use core::sync::atomic::{AtomicU64, Ordering};
