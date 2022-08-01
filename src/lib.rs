@@ -14,7 +14,6 @@
 extern crate alloc;
 
 pub mod allocator;
-pub mod backtrace;
 pub mod gdt;
 pub mod interrupts;
 pub mod memory;
