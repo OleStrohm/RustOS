@@ -6,10 +6,11 @@
 
 extern crate alloc;
 
+
 use bootloader::{entry_point, BootInfo};
 use os::{
     print, println,
-    task::{executor::Executor, keyboard, scheduler, Task},
+    task::{executor::Executor, keyboard, scheduler, Task}, serial_println, memory,
 };
 use pc_keyboard::DecodedKey;
 
@@ -48,9 +49,33 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
         //assert_eq!(sum, 32);
     }
 
-    scheduler::spawn(|| loop {
-        slow();
-        print!("2");
+    //unsafe {
+    //    let mut mapper = memory::init();
+    //    let l4_table = mapper.level_4_table();
+    //    serial_println!("L4 Page table:");
+    //    for (i, entry) in l4_table.iter().enumerate() {
+    //        if !entry.is_unused() {
+    //            serial_println!("\t{:?} => {:?}", i, entry.addr());
+    //        }
+    //    }
+    //}
+
+    //scheduler::spawn(|| loop {
+    //    slow();
+    //    print!("2");
+    //});
+    //scheduler::spawn(|| loop {
+    //    slow();
+    //    print!("3");
+    //});
+    scheduler::spawn_user(|| loop {
+        //slow();
+        //print!("3");
+        //unsafe {
+        //    asm!("
+        //        //mov rax, 1
+        //    ");
+        //}
     });
 
     let mut executor = Executor::new();

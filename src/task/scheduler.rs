@@ -1,23 +1,16 @@
 use super::thread::{Registers, Thread, ThreadId};
-use crate::memory::BootInfoFrameAllocator;
+use crate::memory::{FRAME_ALLOCATOR, KERNEL_MAPPER};
+use crate::serial_println;
 use alloc::collections::{BTreeMap, VecDeque};
 use core::sync::atomic::{AtomicU64, Ordering};
-use lazy_static::lazy_static;
-use spin::Mutex;
+use spin::{Mutex, Once};
 use x86_64::structures::idt::InterruptStackFrameValue;
-use x86_64::structures::paging::OffsetPageTable;
 
-lazy_static! {
-    pub static ref SCHEDULER: Mutex<Option<Scheduler>> = Mutex::new(None);
-    static ref MAPPER: Mutex<Option<OffsetPageTable<'static>>> = Mutex::new(None);
-    static ref FRAME_ALLOCATOR: Mutex<Option<BootInfoFrameAllocator>> = Mutex::new(None);
-}
+static SCHEDULER: Once<Mutex<Scheduler>> = Once::new();
 static CURRENT_THREAD: AtomicU64 = AtomicU64::new(0);
 
-pub fn init_scheduler(mapper: OffsetPageTable<'static>, frame_allocator: BootInfoFrameAllocator) {
-    *SCHEDULER.lock() = Some(Scheduler::new());
-    *MAPPER.lock() = Some(mapper);
-    *FRAME_ALLOCATOR.lock() = Some(frame_allocator);
+pub fn init_scheduler() {
+    SCHEDULER.call_once(|| Mutex::new(Scheduler::new()));
 }
 
 pub struct Scheduler {
@@ -49,20 +42,32 @@ impl Scheduler {
             panic!("Thread with id {} already exists", thread.tid.as_u64());
         }
         self.queue.push_back(thread.tid);
+        serial_println!("registered thread {:?} and now there are {} threads", thread.tid, self.threads.len())
     }
 }
 
-pub fn spawn(entrypoint: fn() -> !) {
-    let mut mapper = MAPPER.lock();
-    let mut frame_allocator = FRAME_ALLOCATOR.lock();
+pub fn spawn_user(entrypoint: fn() -> !) {
+    serial_println!("SPAWNING A USER THREAD");
+    let mut frame_allocator = FRAME_ALLOCATOR.get().unwrap().lock();
 
-    let thread = Thread::create_entrypoint(
-        mapper.as_mut().unwrap(),
-        frame_allocator.as_mut().unwrap(),
+    let thread = Thread::create_userspace_entrypoint(
+        &mut *frame_allocator,
         entrypoint,
     );
-    let mut scheduler = SCHEDULER.lock();
-    scheduler.as_mut().unwrap().register_thread(thread);
+    SCHEDULER.get().unwrap().lock().register_thread(thread);
+}
+
+pub fn spawn(entrypoint: fn() -> !) {
+    serial_println!("SPAWNING A KERNEL THREAD");
+    let mut mapper = KERNEL_MAPPER.get().unwrap().lock();
+    let mut frame_allocator = FRAME_ALLOCATOR.get().unwrap().lock();
+
+    let thread = Thread::create_entrypoint(
+        &mut *mapper,
+        &mut *frame_allocator,
+        entrypoint,
+    );
+    SCHEDULER.get().unwrap().lock().register_thread(thread);
 }
 
 pub fn current_thread() -> ThreadId {
@@ -70,11 +75,7 @@ pub fn current_thread() -> ThreadId {
 }
 
 pub fn schedule() -> Option<Thread> {
-    let next = SCHEDULER
-        .try_lock()
-        .and_then(|mut s| s.as_mut().and_then(|s| s.schedule()));
-
-    next
+    SCHEDULER.get()?.try_lock()?.schedule()
 }
 
 pub fn add_paused_thread(
@@ -82,8 +83,10 @@ pub fn add_paused_thread(
     regs: &mut Registers,
     thread: Thread,
 ) {
-    let mut scheduler = SCHEDULER.lock();
-    let scheduler = scheduler.as_mut().unwrap();
+    let mut scheduler = SCHEDULER.get().unwrap().lock();
+
+    let cur_cr3 = regs.cr3;
+
     let current_tid =
         unsafe { ThreadId::from_u64(CURRENT_THREAD.swap(thread.tid.as_u64(), Ordering::SeqCst)) };
     let current_thread = scheduler.threads.get_mut(&current_tid).unwrap();
@@ -94,4 +97,6 @@ pub fn add_paused_thread(
     *stack_frame = new_thread.stack_frame.take().unwrap();
     *regs = new_thread.regs.take().unwrap();
     scheduler.queue.push_back(current_tid);
+
+    serial_println!("Switching cr3 from {:?} to {:?}", cur_cr3, regs.cr3);
 }

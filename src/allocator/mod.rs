@@ -10,6 +10,8 @@ use x86_64::{
     VirtAddr,
 };
 
+use crate::memory::{FRAME_ALLOCATOR, KERNEL_MAPPER};
+
 #[global_allocator]
 static ALLOCATOR: Locked<FixedSizeBlockAllocator> = Locked::new(FixedSizeBlockAllocator::new());
 
@@ -36,10 +38,9 @@ impl<A> core::ops::Deref for Locked<A> {
     }
 }
 
-pub fn init_heap(
-    mapper: &mut impl Mapper<Size4KiB>,
-    frame_allocator: &mut impl FrameAllocator<Size4KiB>,
-) -> Result<(), MapToError<Size4KiB>> {
+pub fn init_heap() -> Result<(), MapToError<Size4KiB>> {
+    let mut frame_allocator = FRAME_ALLOCATOR.get().unwrap().lock();
+    let mut mapper = KERNEL_MAPPER.get().unwrap().lock();
     let page_range = {
         let heap_start = VirtAddr::new(HEAP_START as u64);
         let heap_end = heap_start + HEAP_SIZE - 1u64;
@@ -53,7 +54,7 @@ pub fn init_heap(
             .allocate_frame()
             .ok_or(MapToError::FrameAllocationFailed)?;
         let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
-        unsafe { mapper.map_to(page, frame, flags, frame_allocator)?.flush() }
+        unsafe { mapper.map_to(page, frame, flags, &mut *frame_allocator)?.flush() }
     }
 
     unsafe {

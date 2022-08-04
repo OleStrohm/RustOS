@@ -5,10 +5,11 @@
 use lazy_static::lazy_static;
 use os::{exit_qemu, serial_print, serial_println};
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame};
+use owo_colors::OwoColorize;
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
-    serial_print!("should_panic::should_fail... ");
+    serial_print!("stack_overflow::stack_overflow... ");
 
     os::gdt::init();
     init_test_idt();
@@ -39,7 +40,7 @@ lazy_static! {
 }
 
 extern "x86-interrupt" fn test_double_fault_handler(_: InterruptStackFrame, _: u64) -> ! {
-    serial_println!("[ok]");
+    serial_println!("{}", "[OK]".green());
     exit_qemu(os::QemuExitCode::Success);
     loop {}
 }
@@ -50,7 +51,7 @@ pub fn init_test_idt() {
 
 #[panic_handler]
 fn panic(_: &core::panic::PanicInfo) -> ! {
-    serial_println!("[ok]");
-    exit_qemu(os::QemuExitCode::Success);
+    serial_println!("{}", "[FAILED]".red());
+    exit_qemu(os::QemuExitCode::Failed);
     loop {}
 }

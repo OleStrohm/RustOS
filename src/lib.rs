@@ -21,11 +21,12 @@ pub mod serial;
 pub mod task;
 pub mod vga;
 
-use self::memory::BootInfoFrameAllocator;
 use bootloader::BootInfo;
+use spin::Once;
 use core::alloc::Layout;
 use task::scheduler;
-use x86_64::VirtAddr;
+
+pub static KERNEL_INFO: Once<&'static BootInfo> = Once::new();
 
 #[cfg(test)]
 use bootloader::entry_point;
@@ -41,14 +42,12 @@ fn test_kernel_main(bootinfo: &'static BootInfo) -> ! {
 }
 
 pub fn init(boot_info: &'static BootInfo) {
+    KERNEL_INFO.call_once(|| boot_info);
     interrupts::init();
     gdt::init();
-    let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
-    let mut mapper = unsafe { memory::init(phys_mem_offset) };
-    let mut frame_allocator = unsafe { BootInfoFrameAllocator::new(&boot_info.memory_map) };
-    allocator::init_heap(&mut mapper, &mut frame_allocator).expect("Heap initalization failed");
-
-    scheduler::init_scheduler(mapper, frame_allocator);
+    memory::init_memory();
+    allocator::init_heap().expect("Heap initalization failed");
+    scheduler::init_scheduler();
 }
 
 pub fn hlt_loop() -> ! {
@@ -76,6 +75,7 @@ pub fn exit_qemu(exit_code: QemuExitCode) {
 pub mod tests {
     use super::{exit_qemu, hlt_loop, QemuExitCode};
     use crate::{serial_print, serial_println};
+    use owo_colors::OwoColorize;
 
     pub trait Testable {
         fn run(&self) -> ();
@@ -88,7 +88,7 @@ pub mod tests {
         fn run(&self) {
             serial_print!("{}... ", core::any::type_name::<T>());
             self();
-            serial_println!("[OK]");
+            serial_println!("{}", "[OK]".green());
         }
     }
 
@@ -102,7 +102,7 @@ pub mod tests {
     }
 
     pub fn test_panic_handler(info: &core::panic::PanicInfo) -> ! {
-        serial_println!("[FAILED]\n");
+        serial_println!("{}", "[FAILED]".red());
         serial_println!("Error: {info}\n");
         exit_qemu(QemuExitCode::Failed);
         hlt_loop();
