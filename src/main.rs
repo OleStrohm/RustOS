@@ -6,11 +6,10 @@
 
 extern crate alloc;
 
-
 use bootloader::{entry_point, BootInfo};
 use os::{
     print, println,
-    task::{executor::Executor, keyboard, scheduler, Task}, serial_println, memory,
+    task::{executor::Executor, keyboard, scheduler, Task}, serial_println
 };
 use pc_keyboard::DecodedKey;
 
@@ -19,7 +18,10 @@ entry_point!(kernel_main);
 async fn print_keypresses() {
     loop {
         match os::task::keyboard::recv().await {
-            DecodedKey::Unicode(c) => print!("{}", c),
+            DecodedKey::Unicode(c) => {
+                serial_println!("printing {}", c);
+                print!("{}", c);
+            }
             DecodedKey::RawKey(key) => print!("{:?}", key),
         }
     }
@@ -34,7 +36,7 @@ async fn example_task() {
     println!("async number: {}", number);
 }
 
-fn kernel_main(boot_info: &'static BootInfo) -> ! {
+fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     os::init(boot_info);
     if cfg!(test) {
         #[cfg(test)]
@@ -49,6 +51,9 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
         //assert_eq!(sum, 32);
     }
 
+    println!("Hey there");
+    serial_println!("Hey there");
+
     //unsafe {
     //    let mut mapper = memory::init();
     //    let l4_table = mapper.level_4_table();
@@ -60,23 +65,23 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     //    }
     //}
 
-    //scheduler::spawn(|| loop {
-    //    slow();
-    //    print!("2");
-    //});
+    scheduler::spawn(|| loop {
+        slow();
+        print!("2");
+    });
     //scheduler::spawn(|| loop {
     //    slow();
     //    print!("3");
     //});
-    scheduler::spawn_user(|| loop {
-        //slow();
-        //print!("3");
-        //unsafe {
-        //    asm!("
-        //        //mov rax, 1
-        //    ");
-        //}
-    });
+    //scheduler::spawn_user(|| loop {
+    //    //slow();
+    //    //print!("3");
+    //    //unsafe {
+    //    //    asm!("
+    //    //        //mov rax, 1
+    //    //    ");
+    //    //}
+    //});
 
     let mut executor = Executor::new();
     executor.spawn(Task::new(example_task()));

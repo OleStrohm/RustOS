@@ -235,11 +235,11 @@ extern "C" fn timer(stack_frame: &mut InterruptStackFrame, regs: &mut Registers)
     if let Some(thread) = scheduler::schedule() {
         unsafe {
             stack_frame.as_mut().update(|frame| {
-                serial_println!(
-                    "context switching from {:?} to {:?}",
-                    current_thread(),
-                    thread.tid
-                );
+                //serial_println!(
+                //    "context switching from {:?} to {:?}",
+                //    current_thread(),
+                //    thread.tid
+                //);
                 add_paused_thread(frame, regs, thread);
             });
         }

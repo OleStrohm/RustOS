@@ -10,7 +10,7 @@ use x86_64::{
     VirtAddr,
 };
 
-use crate::memory::{FRAME_ALLOCATOR, KERNEL_MAPPER};
+use crate::memory::{lock_frame_allocator, lock_memory_mapper};
 
 #[global_allocator]
 static ALLOCATOR: Locked<FixedSizeBlockAllocator> = Locked::new(FixedSizeBlockAllocator::new());
@@ -39,8 +39,8 @@ impl<A> core::ops::Deref for Locked<A> {
 }
 
 pub fn init_heap() -> Result<(), MapToError<Size4KiB>> {
-    let mut frame_allocator = FRAME_ALLOCATOR.get().unwrap().lock();
-    let mut mapper = KERNEL_MAPPER.get().unwrap().lock();
+    let mut frame_allocator = lock_frame_allocator();
+    let mut mapper = lock_memory_mapper();
     let page_range = {
         let heap_start = VirtAddr::new(HEAP_START as u64);
         let heap_end = heap_start + HEAP_SIZE - 1u64;

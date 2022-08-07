@@ -1,5 +1,5 @@
 use super::thread::{Registers, Thread, ThreadId};
-use crate::memory::{FRAME_ALLOCATOR, KERNEL_MAPPER};
+use crate::memory::{lock_frame_allocator, lock_memory_mapper};
 use crate::serial_println;
 use alloc::collections::{BTreeMap, VecDeque};
 use core::sync::atomic::{AtomicU64, Ordering};
@@ -48,7 +48,7 @@ impl Scheduler {
 
 pub fn spawn_user(entrypoint: fn() -> !) {
     serial_println!("SPAWNING A USER THREAD");
-    let mut frame_allocator = FRAME_ALLOCATOR.get().unwrap().lock();
+    let mut frame_allocator = lock_frame_allocator();
 
     let thread = Thread::create_userspace_entrypoint(
         &mut *frame_allocator,
@@ -59,8 +59,8 @@ pub fn spawn_user(entrypoint: fn() -> !) {
 
 pub fn spawn(entrypoint: fn() -> !) {
     serial_println!("SPAWNING A KERNEL THREAD");
-    let mut mapper = KERNEL_MAPPER.get().unwrap().lock();
-    let mut frame_allocator = FRAME_ALLOCATOR.get().unwrap().lock();
+    let mut mapper = lock_memory_mapper();
+    let mut frame_allocator = lock_frame_allocator();
 
     let thread = Thread::create_entrypoint(
         &mut *mapper,
@@ -85,7 +85,7 @@ pub fn add_paused_thread(
 ) {
     let mut scheduler = SCHEDULER.get().unwrap().lock();
 
-    let cur_cr3 = regs.cr3;
+    //let cur_cr3 = regs.cr3;
 
     let current_tid =
         unsafe { ThreadId::from_u64(CURRENT_THREAD.swap(thread.tid.as_u64(), Ordering::SeqCst)) };
@@ -98,5 +98,5 @@ pub fn add_paused_thread(
     *regs = new_thread.regs.take().unwrap();
     scheduler.queue.push_back(current_tid);
 
-    serial_println!("Switching cr3 from {:?} to {:?}", cur_cr3, regs.cr3);
+    //serial_println!("Switching cr3 from {:?} to {:?}", cur_cr3, regs.cr3);
 }

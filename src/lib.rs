@@ -22,11 +22,22 @@ pub mod task;
 pub mod vga;
 
 use bootloader::BootInfo;
-use spin::Once;
 use core::alloc::Layout;
+use spin::Once;
 use task::scheduler;
 
-pub static KERNEL_INFO: Once<&'static BootInfo> = Once::new();
+pub static mut KERNEL_INFO: Once<&'static BootInfo> = Once::new();
+
+pub fn get_physical_memory_offset() -> u64 {
+    unsafe {
+        KERNEL_INFO
+            .get()
+            .unwrap()
+            .physical_memory_offset
+            .into_option()
+            .unwrap()
+    }
+}
 
 #[cfg(test)]
 use bootloader::entry_point;
@@ -35,14 +46,17 @@ use bootloader::entry_point;
 entry_point!(test_kernel_main);
 
 #[cfg(test)]
-fn test_kernel_main(bootinfo: &'static BootInfo) -> ! {
+fn test_kernel_main(bootinfo: &'static mut BootInfo) -> ! {
     init(bootinfo);
     test_main();
     hlt_loop();
 }
 
 pub fn init(boot_info: &'static BootInfo) {
-    KERNEL_INFO.call_once(|| boot_info);
+    unsafe {
+        KERNEL_INFO.call_once(|| boot_info);
+    }
+    vga::init_vga_text_mode();
     interrupts::init();
     gdt::init();
     memory::init_memory();

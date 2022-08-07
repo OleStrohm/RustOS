@@ -2,12 +2,32 @@ use core::{fmt, ptr::write_volatile};
 use lazy_static::lazy_static;
 use spin::Mutex;
 
+use crate::serial_println;
+
 lazy_static! {
-    pub static ref WRITER: Mutex<Writer> = Mutex::new(Writer {
-        column_position: 0,
-        color_code: ColorCode::new(Color::Yellow, Color::Black),
-        buffer: unsafe { &mut *(0xb8000 as *mut Buffer) },
+    pub static ref WRITER: Mutex<Writer> = Mutex::new({
+        let vga_offset = 0x_7F55_AAAA_0000u64;
+        Writer {
+            column_position: 0,
+            color_code: ColorCode::new(Color::Yellow, Color::Black),
+            buffer: unsafe { &mut *(vga_offset as *mut Buffer) },
+        }
     });
+}
+
+pub fn init_vga_text_mode() {
+    serial_println!("setting up vga");
+    let vga_offset = 0x_7F55_AAAA_0000u64;
+    let vga_base = vga_offset as *mut u32;
+    for y in 40..480 {
+        for x in 0..640 {
+            unsafe {
+                vga_base
+                    .add(x + y * 640)
+                    .write(if x < 320 { 0xFFFFFF } else { 0xFF00FF });
+            }
+        }
+    }
 }
 
 #[allow(dead_code)]
