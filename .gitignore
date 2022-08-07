@@ -1,2 +1,3 @@
 /target
+/boot/target
 qemu_debug.log

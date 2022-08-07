@@ -1,13 +1,12 @@
-#![no_std]
-extern crate std;
-
 use std::{
-    format,
+    env,
     path::{Path, PathBuf},
-    println,
     process::{Command, ExitStatus},
     time::Duration,
 };
+
+use bootloader_locator::{CargoMetadataError, LocateError};
+use locate_cargo_manifest::LocateManifestError;
 
 const RUN_ARGS: &[&str] = &[
     "--no-reboot",
@@ -34,7 +33,8 @@ fn main() {
     let mut args = std::env::args().skip(1); // skip executable name
 
     let kernel_binary_path = {
-        let path = PathBuf::from(args.next().unwrap());
+        let path = PathBuf::from_iter(["../", args.next().as_ref().unwrap()]);
+        println!("{:?}", path);
         path.canonicalize().unwrap()
     };
     let no_boot = if let Some(arg) = args.next() {
@@ -81,9 +81,87 @@ fn run_test_command(mut cmd: Command) -> ExitStatus {
     runner_utils::run_with_timeout(&mut cmd, Duration::from_secs(TEST_TIMEOUT_SECS)).unwrap()
 }
 
+fn metadata() -> Result<json::JsonValue, CargoMetadataError> {
+    let parent_path = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR")))
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    println!("parent_path: {:?}", parent_path);
+    let mut cmd = Command::new(env!("CARGO"));
+    cmd.current_dir(parent_path);
+    cmd.arg("metadata");
+    cmd.arg("--format-version").arg("1");
+    let output = cmd.output()?;
+
+    if !output.status.success() {
+        return Err(CargoMetadataError::Failed {
+            stderr: output.stderr,
+        });
+    }
+
+    let output = String::from_utf8(output.stdout)?;
+    let parsed = json::parse(&output)?;
+
+    Ok(parsed)
+}
+
+pub fn locate_bootloader(dependency_name: &str) -> Result<PathBuf, LocateError> {
+    let metadata = metadata()?;
+
+    let root = metadata["resolve"]["root"]
+        .as_str()
+        .ok_or(LocateError::MetadataInvalid)?;
+
+    let root_resolve = metadata["resolve"]["nodes"]
+        .members()
+        .find(|r| r["id"] == root)
+        .ok_or(LocateError::MetadataInvalid)?;
+
+    let dependency = root_resolve["deps"]
+        .members()
+        .find(|d| d["name"] == dependency_name)
+        .ok_or(LocateError::DependencyNotFound)?;
+    let dependency_id = dependency["pkg"]
+        .as_str()
+        .ok_or(LocateError::MetadataInvalid)?;
+
+    let dependency_package = metadata["packages"]
+        .members()
+        .find(|p| p["id"] == dependency_id)
+        .ok_or(LocateError::MetadataInvalid)?;
+    let dependency_manifest = dependency_package["manifest_path"]
+        .as_str()
+        .ok_or(LocateError::MetadataInvalid)?;
+
+    Ok(dependency_manifest.into())
+}
+
+pub fn locate_manifest() -> Result<PathBuf, LocateManifestError> {
+    let parent_path = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR")))
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let cargo = env::var("CARGO").unwrap_or("cargo".to_owned());
+    let output = Command::new(cargo)
+        .current_dir(parent_path)
+        .arg("locate-project")
+        .output()?;
+    if !output.status.success() {
+        return Err(LocateManifestError::CargoExecution {
+            stderr: output.stderr,
+        });
+    }
+
+    let output = String::from_utf8(output.stdout)?;
+    let parsed = json::parse(&output)?;
+    let root = parsed["root"].as_str().ok_or(LocateManifestError::NoRoot)?;
+    Ok(PathBuf::from(root))
+}
+
 pub fn create_disk_images(kernel_binary_path: &Path) -> PathBuf {
-    let bootloader_manifest_path = bootloader_locator::locate_bootloader("bootloader").unwrap();
-    let kernel_manifest_path = locate_cargo_manifest::locate_manifest().unwrap();
+    let bootloader_manifest_path = locate_bootloader("bootloader").unwrap();
+    let kernel_manifest_path = locate_manifest().unwrap();
+    println!("kernel_cargo: {:?}", kernel_manifest_path);
 
     let mut build_cmd = Command::new(env!("CARGO"));
     build_cmd.current_dir(bootloader_manifest_path.parent().unwrap());
