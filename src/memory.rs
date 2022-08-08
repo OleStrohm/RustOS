@@ -111,10 +111,7 @@ pub fn allocate_page_table(
         }
     }
 
-    //let l4_frame = Cr3::read().0;
-    //let l4_table = (l4_frame.start_address().as_u64() + physical_memory_offset) as *mut PageTable;
-    //let l4_table = unsafe { l4_table.as_mut().unwrap() };
-    unsafe { (l4_frame, l1_table[0].addr()) }
+    (l4_frame, l1_table[0].addr())
 }
 
 fn get_kernel_level_3_tables(mapper: &mut OffsetPageTable<'static>) -> (PhysAddr, PhysAddr) {

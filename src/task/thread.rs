@@ -25,21 +25,24 @@ impl Thread {
     ) -> Self {
         let (cr3, user_zero) = memory::allocate_page_table(mapper, frame_allocator);
         let stack = VirtAddr::new(10 * 4096); // 10 pages have been allocated
-        let entrypoint = unsafe {
-            let start_of_code = 4096; // One page in
-            copy_nonoverlapping(
-                entrypoint as *const u8,
-                (user_zero.as_u64() + start_of_code + get_physical_memory_offset()) as *mut u8,
-                9 * 4096,
-            );
-            VirtAddr::new(start_of_code)
-        };
+        let stack = Stack::allocate_kernel(10, mapper, frame_allocator).end;
+        let entrypoint = VirtAddr::new(entrypoint as u64);
+        //let entrypoint = unsafe {
+        //    let start_of_code = 4096; // One page in
+        //    copy_nonoverlapping(
+        //        entrypoint as *const u8,
+        //        (user_zero.as_u64() + start_of_code + get_physical_memory_offset()) as *mut u8,
+        //        9 * 4096,
+        //    );
+        //    VirtAddr::new(start_of_code)
+        //};
 
+        let (cr3, _) = Cr3::read();
         Thread {
             tid: ThreadId::new(),
             stack_frame: Some(InterruptStackFrameValue {
                 instruction_pointer: entrypoint,
-                code_segment: 0x10 | 3, // Selector index 0x10 (2 * 8) and ring 3 (lower two bits)
+                code_segment: 0x8, // Selector index 0x10 (2 * 8) and ring 3 (lower two bits)
                 cpu_flags: 0x200,
                 stack_pointer: stack,
                 stack_segment: 0,

@@ -1,6 +1,6 @@
 use crate::task::scheduler::{self, add_paused_thread, current_thread};
 use crate::task::thread::Registers;
-use crate::{gdt, hlt_loop, println, serial_println};
+use crate::{gdt, hlt_loop, println};
 use core::arch::asm;
 use core::mem::size_of;
 use lazy_static::lazy_static;

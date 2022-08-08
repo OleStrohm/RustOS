@@ -75,14 +75,14 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     //    slow();
     //    print!("3");
     //});
-    scheduler::spawn_user(|| loop {
-        unsafe {
-            asm!("
-                mov rax, 1
-                hlt
-            ");
-        }
-    });
+    //scheduler::spawn_user(|| loop {
+    //    unsafe {
+    //        asm!("
+    //            mov rax, 1
+    //            hlt
+    //        ");
+    //    }
+    //});
 
     let mut executor = Executor::new();
     executor.spawn(Task::new(example_task()));
