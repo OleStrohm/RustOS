@@ -42,18 +42,21 @@ impl Scheduler {
             panic!("Thread with id {} already exists", thread.tid.as_u64());
         }
         self.queue.push_back(thread.tid);
-        serial_println!("registered thread {:?} and now there are {} threads", thread.tid, self.threads.len())
+        serial_println!(
+            "registered thread {:?} and now there are {} threads",
+            thread.tid,
+            self.threads.len()
+        )
     }
 }
 
 pub fn spawn_user(entrypoint: fn() -> !) {
     serial_println!("SPAWNING A USER THREAD");
+    let mut mapper = lock_memory_mapper();
     let mut frame_allocator = lock_frame_allocator();
 
-    let thread = Thread::create_userspace_entrypoint(
-        &mut *frame_allocator,
-        entrypoint,
-    );
+    let thread =
+        Thread::create_userspace_entrypoint(&mut *mapper, &mut *frame_allocator, entrypoint);
     SCHEDULER.get().unwrap().lock().register_thread(thread);
 }
 
@@ -62,11 +65,7 @@ pub fn spawn(entrypoint: fn() -> !) {
     let mut mapper = lock_memory_mapper();
     let mut frame_allocator = lock_frame_allocator();
 
-    let thread = Thread::create_entrypoint(
-        &mut *mapper,
-        &mut *frame_allocator,
-        entrypoint,
-    );
+    let thread = Thread::create_entrypoint(&mut *mapper, &mut *frame_allocator, entrypoint);
     SCHEDULER.get().unwrap().lock().register_thread(thread);
 }
 

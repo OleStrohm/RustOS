@@ -56,7 +56,7 @@ pub fn init(boot_info: &'static BootInfo) {
     unsafe {
         KERNEL_INFO.call_once(|| boot_info);
     }
-    vga::init_vga_text_mode();
+    vga::init_vga();
     interrupts::init();
     gdt::init();
     memory::init_memory();

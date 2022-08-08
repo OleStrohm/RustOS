@@ -6,6 +6,8 @@
 
 extern crate alloc;
 
+use core::arch::asm;
+
 use bootloader::{entry_point, BootInfo};
 use os::{
     print, println,
@@ -65,23 +67,22 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     //    }
     //}
 
-    scheduler::spawn(|| loop {
-        slow();
-        print!("2");
-    });
+    //scheduler::spawn(|| loop {
+    //    slow();
+    //    print!("2");
+    //});
     //scheduler::spawn(|| loop {
     //    slow();
     //    print!("3");
     //});
-    //scheduler::spawn_user(|| loop {
-    //    //slow();
-    //    //print!("3");
-    //    //unsafe {
-    //    //    asm!("
-    //    //        //mov rax, 1
-    //    //    ");
-    //    //}
-    //});
+    scheduler::spawn_user(|| loop {
+        unsafe {
+            asm!("
+                mov rax, 1
+                hlt
+            ");
+        }
+    });
 
     let mut executor = Executor::new();
     executor.spawn(Task::new(example_task()));

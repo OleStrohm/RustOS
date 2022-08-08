@@ -63,68 +63,80 @@ unsafe impl FrameAllocator<Size4KiB> for BootInfoFrameAllocator {
 }
 
 pub fn allocate_page_table(
+    mapper: &mut OffsetPageTable<'static>,
     frame_allocator: &mut impl FrameAllocator<Size4KiB>,
-) -> (OffsetPageTable<'static>, PhysFrame) {
+) -> (PhysFrame, PhysAddr) {
     let physical_memory_offset = get_physical_memory_offset();
 
     let l4_frame = frame_allocator.allocate_frame().unwrap();
-    let l3_frame = frame_allocator.allocate_frame().unwrap();
-    let l2_frame = frame_allocator.allocate_frame().unwrap();
+    let l3_frame: PhysFrame<Size4KiB> = frame_allocator.allocate_frame().unwrap();
+    let l2_frame: PhysFrame<Size4KiB> = frame_allocator.allocate_frame().unwrap();
+    let l1_frame: PhysFrame<Size4KiB> = frame_allocator.allocate_frame().unwrap();
 
-    let page_table_flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
-    let user_page_table_flags = page_table_flags | PageTableFlags::USER_ACCESSIBLE;
+    let kernel_page_table_flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
+    let user_page_table_flags = kernel_page_table_flags | PageTableFlags::USER_ACCESSIBLE;
 
     let l4_address = l4_frame.start_address();
     let l3_address = l3_frame.start_address();
     let l2_address = l2_frame.start_address();
+    let l1_address = l1_frame.start_address();
 
     let l4_table = (l4_address.as_u64() + physical_memory_offset) as *mut PageTable;
     let l4_table = unsafe { l4_table.as_mut().unwrap() };
-    let l3_table = (l4_address.as_u64() + physical_memory_offset) as *mut PageTable;
+    let l3_table = (l3_address.as_u64() + physical_memory_offset) as *mut PageTable;
     let l3_table = unsafe { l3_table.as_mut().unwrap() };
-    let l2_table = (l4_address.as_u64() + physical_memory_offset) as *mut PageTable;
+    let l2_table = (l2_address.as_u64() + physical_memory_offset) as *mut PageTable;
     let l2_table = unsafe { l2_table.as_mut().unwrap() };
+    let l1_table = (l1_address.as_u64() + physical_memory_offset) as *mut PageTable;
+    let l1_table = unsafe { l1_table.as_mut().unwrap() };
 
     l4_table[0].set_addr(l3_address, user_page_table_flags);
     l3_table[0].set_addr(l2_address, user_page_table_flags);
+    l2_table[0].set_addr(l1_address, user_page_table_flags);
 
-    l2_table.iter_mut().take(16).for_each(|entry| {
-        let frame: PhysFrame<Size4KiB> = frame_allocator.allocate_frame().unwrap();
+    let (kernel_data, kernel_code) = get_kernel_level_3_tables(mapper);
+    l3_table[510].set_addr(kernel_data, kernel_page_table_flags);
+    l3_table[511].set_addr(kernel_code, kernel_page_table_flags);
+
+    l1_table.iter_mut().take(16).for_each(|entry| {
+        let frame = frame_allocator.allocate_frame().unwrap();
         entry.set_addr(frame.start_address(), user_page_table_flags);
     });
+
     //TODO remove this
-
-    unsafe {
-        let mut mapper = init();
-        let kernel_l4_table = mapper.level_4_table();
-        serial_println!("L4 Page table:");
-        for (i, entry) in kernel_l4_table.iter().enumerate() {
-            if !entry.is_unused() {
-                serial_println!("\t{:?} => {:?}", i, entry.addr());
-                l4_table[i] = entry.clone();
-            }
+    let kernel_l4_table = mapper.level_4_table();
+    for (i, entry) in kernel_l4_table.iter().enumerate() {
+        if !entry.is_unused() {
+            l4_table[i] = entry.clone();
         }
-        serial_println!("L3 Page table:");
-        let kernel_l3_table = ((kernel_l4_table[0].addr().as_u64() + physical_memory_offset)
-            as *const PageTable)
+    }
+
+    //let l4_frame = Cr3::read().0;
+    //let l4_table = (l4_frame.start_address().as_u64() + physical_memory_offset) as *mut PageTable;
+    //let l4_table = unsafe { l4_table.as_mut().unwrap() };
+    unsafe { (l4_frame, l1_table[0].addr()) }
+}
+
+fn get_kernel_level_3_tables(mapper: &mut OffsetPageTable<'static>) -> (PhysAddr, PhysAddr) {
+    let kernel_l4_table = mapper.level_4_table();
+    serial_println!("L4 Page table:");
+    for (i, entry) in kernel_l4_table.iter().enumerate() {
+        if !entry.is_unused() {
+            serial_println!("\t{:?} => {:?}", i, entry.addr());
+        }
+    }
+    serial_println!("L3 Page table:");
+    let kernel_l3_table = unsafe {
+        ((kernel_l4_table[0].addr().as_u64() + mapper.phys_offset().as_u64()) as *const PageTable)
             .as_ref()
-            .unwrap();
-        for (i, entry) in kernel_l3_table.iter().enumerate() {
-            if !entry.is_unused() {
-                serial_println!("\t{:?} => {:?}", i, entry.addr());
-            }
+            .unwrap()
+    };
+    for (i, entry) in kernel_l3_table.iter().enumerate() {
+        if !entry.is_unused() {
+            serial_println!("\t{:?} => {:?}", i, entry.addr());
         }
     }
-
-    let l4_frame = Cr3::read().0;
-    let l4_table = (l4_frame.start_address().as_u64() + physical_memory_offset) as *mut PageTable;
-    let l4_table = unsafe { l4_table.as_mut().unwrap() };
-    unsafe {
-        (
-            OffsetPageTable::new(&mut *l4_table, VirtAddr::new(physical_memory_offset)),
-            l4_frame,
-        )
-    }
+    (kernel_l3_table[510].addr(), kernel_l3_table[511].addr())
 }
 
 pub unsafe fn init() -> OffsetPageTable<'static> {
