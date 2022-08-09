@@ -127,7 +127,7 @@ mod tests {
 
     #[test_case]
     fn println_many() {
-        for _ in 0..200 {
+        for _ in 0..5 {
             println!("a line");
         }
     }

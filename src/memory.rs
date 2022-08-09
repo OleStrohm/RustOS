@@ -74,7 +74,7 @@ pub fn allocate_page_table(
     let l1_frame: PhysFrame<Size4KiB> = frame_allocator.allocate_frame().unwrap();
 
     let kernel_page_table_flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
-    let user_page_table_flags = kernel_page_table_flags | PageTableFlags::USER_ACCESSIBLE;
+    let user_page_table_flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE;
 
     let l4_address = l4_frame.start_address();
     let l3_address = l3_frame.start_address();
@@ -102,14 +102,6 @@ pub fn allocate_page_table(
         let frame = frame_allocator.allocate_frame().unwrap();
         entry.set_addr(frame.start_address(), user_page_table_flags);
     });
-
-    //TODO remove this
-    let kernel_l4_table = mapper.level_4_table();
-    for (i, entry) in kernel_l4_table.iter().enumerate() {
-        if !entry.is_unused() {
-            l4_table[i] = entry.clone();
-        }
-    }
 
     (l4_frame, l1_table[0].addr())
 }

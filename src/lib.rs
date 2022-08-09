@@ -25,8 +25,11 @@ use bootloader::BootInfo;
 use core::alloc::Layout;
 use spin::Once;
 use task::scheduler;
+use x86_64::registers::control::Cr3;
+use x86_64::structures::paging::PhysFrame;
 
 pub static mut KERNEL_INFO: Once<&'static BootInfo> = Once::new();
+pub static mut KERNEL_CR3: Once<PhysFrame> = Once::new();
 
 pub fn get_physical_memory_offset() -> u64 {
     unsafe {
@@ -37,6 +40,10 @@ pub fn get_physical_memory_offset() -> u64 {
             .into_option()
             .unwrap()
     }
+}
+
+pub fn get_kernel_cr3() -> PhysFrame {
+    unsafe { *KERNEL_CR3.get().unwrap() }
 }
 
 #[cfg(test)]
@@ -55,6 +62,7 @@ fn test_kernel_main(bootinfo: &'static mut BootInfo) -> ! {
 pub fn init(boot_info: &'static BootInfo) {
     unsafe {
         KERNEL_INFO.call_once(|| boot_info);
+        KERNEL_CR3.call_once(|| Cr3::read().0);
     }
     vga::init_vga();
     interrupts::init();

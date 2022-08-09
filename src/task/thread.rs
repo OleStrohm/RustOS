@@ -3,12 +3,13 @@ use core::sync::atomic::{AtomicU64, Ordering};
 use x86_64::registers::control::Cr3;
 use x86_64::structures::idt::InterruptStackFrameValue;
 use x86_64::structures::paging::{
-    mapper, FrameAllocator, Mapper, OffsetPageTable, Page, PageTableFlags as Flags, PhysFrame,
-    Size4KiB,
+    mapper, FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags as Flags,
+    PhysFrame, Size4KiB,
 };
 use x86_64::VirtAddr;
 
-use crate::{get_physical_memory_offset, memory};
+use crate::gdt::GDT;
+use crate::{get_physical_memory_offset, memory, println, serial_println};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Thread {
@@ -24,28 +25,46 @@ impl Thread {
         entrypoint: fn() -> !,
     ) -> Self {
         let (cr3, user_zero) = memory::allocate_page_table(mapper, frame_allocator);
-        let stack = VirtAddr::new(10 * 4096); // 10 pages have been allocated
-        let stack = Stack::allocate_kernel(10, mapper, frame_allocator).end;
-        let entrypoint = VirtAddr::new(entrypoint as u64);
-        //let entrypoint = unsafe {
-        //    let start_of_code = 4096; // One page in
-        //    copy_nonoverlapping(
-        //        entrypoint as *const u8,
-        //        (user_zero.as_u64() + start_of_code + get_physical_memory_offset()) as *mut u8,
-        //        9 * 4096,
-        //    );
-        //    VirtAddr::new(start_of_code)
-        //};
 
-        let (cr3, _) = Cr3::read();
+        unsafe {
+            let phys = cr3.start_address();
+            let virt = VirtAddr::new(get_physical_memory_offset()) + phys.as_u64();
+            let page_table_ptr: *mut PageTable = virt.as_mut_ptr();
+            let user_mapper = OffsetPageTable::new(&mut *page_table_ptr, mapper.phys_offset());
+            let translated_user_zero = user_mapper
+                .translate_page(Page::<Size4KiB>::containing_address(VirtAddr::new(0x9ff8)));
+            serial_println!("0x9ff8 => {translated_user_zero:?}");
+        }
+        let stack = VirtAddr::new(2 * 4096); // at least 10 pages have been allocated
+        let entrypoint = unsafe {
+            let start_of_code = 4096; // One page in
+            copy_nonoverlapping(
+                entrypoint as *const u8,
+                (user_zero.as_u64() + start_of_code + get_physical_memory_offset()) as *mut u8,
+                4096,
+            );
+            for i in 0..5 {
+                let target =
+                    (user_zero.as_u64() + start_of_code + get_physical_memory_offset()) as *mut u8;
+                let target = target.add(i);
+                serial_println!("0x1000+{:}: {:X}", i, target.read());
+            }
+            VirtAddr::new(start_of_code)
+        };
+
+        //TODO: REMOVE
+        //let stack = Stack::allocate_kernel(10, mapper, frame_allocator).end;
+        //let entrypoint = VirtAddr::new(entrypoint as u64);
+        //let (cr3, _) = Cr3::read();
+
         Thread {
             tid: ThreadId::new(),
             stack_frame: Some(InterruptStackFrameValue {
                 instruction_pointer: entrypoint,
-                code_segment: 0x8, // Selector index 0x10 (2 * 8) and ring 3 (lower two bits)
+                code_segment: GDT.1.user_code_selector.0 as u64, //GDT.1.kernel_code_selector.0 as u64, //0x18 | 3, // Selector index 0x18 (3 * 8) and ring 3 (lower two bits)
                 cpu_flags: 0x200,
                 stack_pointer: stack,
-                stack_segment: 0,
+                stack_segment: GDT.1.user_data_selector.0 as u64,
             }),
             regs: Some(Registers::with_cr3(cr3)),
         }
@@ -58,15 +77,23 @@ impl Thread {
     ) -> Self {
         let stack = Stack::allocate_kernel(10, mapper, frame_allocator);
 
+        println!(
+            "User code segment(idx:{}): {:?}",
+            GDT.1.user_code_selector.0 as u64, GDT.1.user_code_selector
+        );
+        println!(
+            "Kernel code segment(idx:{}): {:?}",
+            GDT.1.kernel_code_selector.0 as u64, GDT.1.kernel_code_selector
+        );
         let (cr3, _) = Cr3::read();
         Thread {
             tid: ThreadId::new(),
             stack_frame: Some(InterruptStackFrameValue {
                 instruction_pointer: VirtAddr::new(entrypoint as u64),
-                code_segment: 0x8,
+                code_segment: GDT.1.kernel_code_selector.0 as u64,
                 cpu_flags: 0x202,
                 stack_pointer: stack.end,
-                stack_segment: 0,
+                stack_segment: GDT.1.kernel_data_selector.0 as u64,
             }),
             regs: Some(Registers::with_cr3(cr3)),
         }
@@ -117,15 +144,7 @@ impl Stack {
                 .allocate_frame()
                 .ok_or(mapper::MapToError::FrameAllocationFailed)?;
             unsafe {
-                mapper
-                    .map_to_with_table_flags(
-                        page,
-                        frame,
-                        flags,
-                        flags | Flags::USER_ACCESSIBLE,
-                        frame_allocator,
-                    )?
-                    .flush();
+                mapper.map_to(page, frame, flags, frame_allocator)?.flush();
             }
         }
         Ok(Stack {

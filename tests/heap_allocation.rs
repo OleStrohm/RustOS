@@ -10,7 +10,7 @@ use bootloader::{entry_point, BootInfo};
 
 entry_point!(main);
 
-fn main(boot_info: &'static BootInfo) -> ! {
+fn main(boot_info: &'static mut BootInfo) -> ! {
     os::init(boot_info);
 
     test_main();

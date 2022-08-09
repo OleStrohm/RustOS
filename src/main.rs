@@ -38,6 +38,16 @@ async fn example_task() {
     println!("async number: {}", number);
 }
 
+fn user_task() -> ! {
+        unsafe {
+            asm!("
+                2:
+                mov rax, 1
+                jmp 2b
+            ", options(noreturn));
+        }
+}
+
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     os::init(boot_info);
     if cfg!(test) {
@@ -75,7 +85,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     //    slow();
     //    print!("3");
     //});
+    scheduler::spawn_user(user_task);
     //scheduler::spawn_user(|| loop {
+    //    //slow();
+    //    //print!("4");
     //    unsafe {
     //        asm!("
     //            mov rax, 1
@@ -108,6 +121,7 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
+    serial_println!("{}", info);
     println!("{}", info);
     os::hlt_loop();
 }

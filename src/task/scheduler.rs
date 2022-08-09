@@ -84,7 +84,7 @@ pub fn add_paused_thread(
 ) {
     let mut scheduler = SCHEDULER.get().unwrap().lock();
 
-    //let cur_cr3 = regs.cr3;
+    let cur_cr3 = regs.cr3;
 
     let current_tid =
         unsafe { ThreadId::from_u64(CURRENT_THREAD.swap(thread.tid.as_u64(), Ordering::SeqCst)) };
@@ -97,5 +97,5 @@ pub fn add_paused_thread(
     *regs = new_thread.regs.take().unwrap();
     scheduler.queue.push_back(current_tid);
 
-    //serial_println!("Switching cr3 from {:?} to {:?}", cur_cr3, regs.cr3);
+    serial_println!("Switching cr3 from {:?} to {:?}", cur_cr3, regs.cr3);
 }

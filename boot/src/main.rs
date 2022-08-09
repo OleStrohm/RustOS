@@ -11,6 +11,7 @@ use locate_cargo_manifest::LocateManifestError;
 const RUN_ARGS: &[&str] = &[
     "--no-reboot",
     "-s",
+    //"-S",
     "-serial",
     "mon:stdio",
     "-d",

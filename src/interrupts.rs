@@ -1,11 +1,12 @@
 use crate::task::scheduler::{self, add_paused_thread, current_thread};
 use crate::task::thread::Registers;
-use crate::{gdt, hlt_loop, println};
+use crate::{gdt, get_kernel_cr3, hlt_loop, println, serial_println};
 use core::arch::asm;
 use core::mem::size_of;
 use lazy_static::lazy_static;
 use pic8259::ChainedPics;
 use spin;
+use x86_64::registers::control::{Cr3, Cr3Flags};
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 use x86_64::VirtAddr;
 
@@ -85,7 +86,11 @@ lazy_static! {
         idt.stack_segment_fault.set_handler_fn(stack_segment_fault);
         idt.general_protection_fault
             .set_handler_fn(general_protection_fault);
-        idt.page_fault.set_handler_fn(page_fault);
+        unsafe {
+            idt.page_fault
+                .set_handler_fn(page_fault)
+                .set_stack_index(gdt::PAGE_FAULT_IST_INDEX);
+        }
         idt.x87_floating_point.set_handler_fn(x87_floating_point);
         idt.alignment_check.set_handler_fn(alignment_check);
         idt.machine_check.set_handler_fn(machine_check);
@@ -171,6 +176,9 @@ extern "x86-interrupt" fn general_protection_fault(
     stack_frame: InterruptStackFrame,
     error_code: u64,
 ) {
+    unsafe {
+        Cr3::write(get_kernel_cr3(), Cr3Flags::empty());
+    }
     panic!(
         "EXCEPTION({error_code}): GENERAL PROTECTION FAULT\n{:#?}",
         stack_frame
@@ -182,6 +190,9 @@ extern "x86-interrupt" fn page_fault(
     error_code: PageFaultErrorCode,
 ) {
     use x86_64::registers::control::Cr2;
+    unsafe {
+        Cr3::write(get_kernel_cr3(), Cr3Flags::empty());
+    }
 
     println!("Thread id: {}", current_thread().as_u64());
     println!("Exception: PAGE FAULT");
@@ -232,7 +243,12 @@ extern "x86-interrupt" fn security_exception(stack_frame: InterruptStackFrame, e
 }
 
 extern "C" fn timer(stack_frame: &mut InterruptStackFrame, regs: &mut Registers) {
+    let (current_cr3, _) = Cr3::read();
+    unsafe {
+        Cr3::write(get_kernel_cr3(), Cr3Flags::empty());
+    }
     if let Some(thread) = scheduler::schedule() {
+        serial_println!("context switch");
         unsafe {
             stack_frame.as_mut().update(|frame| {
                 //serial_println!(
@@ -243,6 +259,9 @@ extern "C" fn timer(stack_frame: &mut InterruptStackFrame, regs: &mut Registers)
                 add_paused_thread(frame, regs, thread);
             });
         }
+    }
+    unsafe {
+        Cr3::write(current_cr3, Cr3Flags::empty());
     }
 }
 
