@@ -16,6 +16,8 @@ const RUN_ARGS: &[&str] = &[
     "mon:stdio",
     "-d",
     "int",
+    "-M",
+    "smm=off",
     "-D",
     "qemu_debug.log",
 ];
@@ -35,7 +37,6 @@ fn main() {
 
     let kernel_binary_path = {
         let path = PathBuf::from_iter(["../", args.next().as_ref().unwrap()]);
-        println!("{:?}", path);
         path.canonicalize().unwrap()
     };
     let no_boot = if let Some(arg) = args.next() {
@@ -47,7 +48,8 @@ fn main() {
         false
     };
 
-    let bios = create_disk_images(&kernel_binary_path);
+    let binary_kind = runner_utils::binary_kind(&kernel_binary_path);
+    let bios = create_disk_images(&kernel_binary_path, binary_kind.is_test());
 
     if no_boot {
         println!("Created disk image at `{}`", bios.display());
@@ -59,7 +61,6 @@ fn main() {
         .arg("-drive")
         .arg(format!("format=raw,file={}", bios.display()));
 
-    let binary_kind = runner_utils::binary_kind(&kernel_binary_path);
     if binary_kind.is_test() {
         run_cmd.args(TEST_ARGS);
 
@@ -87,7 +88,6 @@ fn metadata() -> Result<json::JsonValue, CargoMetadataError> {
         .parent()
         .unwrap()
         .to_path_buf();
-    println!("parent_path: {:?}", parent_path);
     let mut cmd = Command::new(env!("CARGO"));
     cmd.current_dir(parent_path);
     cmd.arg("metadata");
@@ -159,10 +159,9 @@ pub fn locate_manifest() -> Result<PathBuf, LocateManifestError> {
     Ok(PathBuf::from(root))
 }
 
-pub fn create_disk_images(kernel_binary_path: &Path) -> PathBuf {
+pub fn create_disk_images(kernel_binary_path: &Path, is_test: bool) -> PathBuf {
     let bootloader_manifest_path = locate_bootloader("bootloader").unwrap();
     let kernel_manifest_path = locate_manifest().unwrap();
-    println!("kernel_cargo: {:?}", kernel_manifest_path);
 
     let mut build_cmd = Command::new(env!("CARGO"));
     build_cmd.current_dir(bootloader_manifest_path.parent().unwrap());
@@ -177,7 +176,9 @@ pub fn create_disk_images(kernel_binary_path: &Path) -> PathBuf {
     build_cmd
         .arg("--out-dir")
         .arg(kernel_binary_path.parent().unwrap());
-    //build_cmd.arg("--quiet");
+    if is_test {
+        build_cmd.arg("--quiet");
+    }
 
     if !build_cmd.status().unwrap().success() {
         panic!("build failed");

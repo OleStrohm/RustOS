@@ -1,6 +1,6 @@
 use crate::task::scheduler::{self, add_paused_thread, current_thread};
 use crate::task::thread::Registers;
-use crate::{gdt, get_kernel_cr3, hlt_loop, println, serial_println};
+use crate::{gdt, get_kernel_cr3};
 use core::arch::asm;
 use core::mem::size_of;
 use lazy_static::lazy_static;
@@ -30,7 +30,13 @@ macro_rules! pop_registers {
 macro_rules! register_interrupt {
     ($idt:ident, $interrupt:path => $handler:ident) => {{
         #[allow(unused)]
-        const CHECK_HANDLER: extern "C" fn(stack_frame: &mut InterruptStackFrame, regs: &mut Registers) = $handler;
+        const CHECK_HANDLER: fn(stack_frame: &mut InterruptStackFrame, regs: &mut Registers) = $handler;
+        extern "C" fn as_kernel(stack_frame: &mut InterruptStackFrame, regs: &mut Registers) {
+            let (current_cr3, _) = Cr3::read();
+            unsafe { Cr3::write(get_kernel_cr3(), Cr3Flags::empty()) };
+            $handler(stack_frame, regs);
+            unsafe { Cr3::write(current_cr3, Cr3Flags::empty()) };
+        }
         #[naked]
         extern "x86-interrupt" fn handler() {
             unsafe {
@@ -49,7 +55,7 @@ macro_rules! register_interrupt {
                     ",
                     pop_registers!(),
                     "iretq",
-                    handler = sym $handler,
+                    handler = sym as_kernel,
                     regs_size = const size_of::<Registers>(),
                     interrupt_index = const $interrupt as u8,
                     end_interrupt = sym interrupt_return,
@@ -194,12 +200,19 @@ extern "x86-interrupt" fn page_fault(
         Cr3::write(get_kernel_cr3(), Cr3Flags::empty());
     }
 
-    println!("Thread id: {}", current_thread().as_u64());
-    println!("Exception: PAGE FAULT");
-    println!("Accessed Address: {:?}", Cr2::read());
-    println!("Error code: {error_code:?}");
-    println!("{stack_frame:#?}");
-    hlt_loop();
+    panic!(
+        indoc::indoc! {"
+         \nThread id: {}
+         Exception: PAGE FAULT
+         Accessed Address: {:?}
+         Error code: {:?}
+         {:#?}
+        "},
+        current_thread().as_u64(),
+        Cr2::read(),
+        error_code,
+        stack_frame,
+    );
 }
 
 extern "x86-interrupt" fn x87_floating_point(stack_frame: InterruptStackFrame) {
@@ -242,33 +255,17 @@ extern "x86-interrupt" fn security_exception(stack_frame: InterruptStackFrame, e
     );
 }
 
-extern "C" fn timer(stack_frame: &mut InterruptStackFrame, regs: &mut Registers) {
-    let (current_cr3, _) = Cr3::read();
-    unsafe {
-        Cr3::write(get_kernel_cr3(), Cr3Flags::empty());
-    }
+fn timer(stack_frame: &mut InterruptStackFrame, regs: &mut Registers) {
     if let Some(thread) = scheduler::schedule() {
-        serial_println!("context switch");
         unsafe {
             stack_frame.as_mut().update(|frame| {
-                //serial_println!(
-                //    "context switching from {:?} to {:?}",
-                //    current_thread(),
-                //    thread.tid
-                //);
                 add_paused_thread(frame, regs, thread);
             });
         }
     }
-    unsafe {
-        Cr3::write(current_cr3, Cr3Flags::empty());
-    }
 }
 
-extern "C" fn keyboard_interrupt_handler(
-    _stack_frame: &mut InterruptStackFrame,
-    _regs: &mut Registers,
-) {
+fn keyboard_interrupt_handler(_stack_frame: &mut InterruptStackFrame, _regs: &mut Registers) {
     use x86_64::instructions::port::Port;
 
     let mut port = Port::new(0x60);

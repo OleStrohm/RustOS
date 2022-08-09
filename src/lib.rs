@@ -14,6 +14,7 @@
 extern crate alloc;
 
 pub mod allocator;
+//pub mod debug;
 pub mod gdt;
 pub mod interrupts;
 pub mod memory;

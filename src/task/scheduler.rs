@@ -1,6 +1,5 @@
 use super::thread::{Registers, Thread, ThreadId};
 use crate::memory::{lock_frame_allocator, lock_memory_mapper};
-use crate::serial_println;
 use alloc::collections::{BTreeMap, VecDeque};
 use core::sync::atomic::{AtomicU64, Ordering};
 use spin::{Mutex, Once};
@@ -42,16 +41,10 @@ impl Scheduler {
             panic!("Thread with id {} already exists", thread.tid.as_u64());
         }
         self.queue.push_back(thread.tid);
-        serial_println!(
-            "registered thread {:?} and now there are {} threads",
-            thread.tid,
-            self.threads.len()
-        )
     }
 }
 
 pub fn spawn_user(entrypoint: fn() -> !) {
-    serial_println!("SPAWNING A USER THREAD");
     let mut mapper = lock_memory_mapper();
     let mut frame_allocator = lock_frame_allocator();
 
@@ -61,7 +54,6 @@ pub fn spawn_user(entrypoint: fn() -> !) {
 }
 
 pub fn spawn(entrypoint: fn() -> !) {
-    serial_println!("SPAWNING A KERNEL THREAD");
     let mut mapper = lock_memory_mapper();
     let mut frame_allocator = lock_frame_allocator();
 
@@ -84,8 +76,6 @@ pub fn add_paused_thread(
 ) {
     let mut scheduler = SCHEDULER.get().unwrap().lock();
 
-    let cur_cr3 = regs.cr3;
-
     let current_tid =
         unsafe { ThreadId::from_u64(CURRENT_THREAD.swap(thread.tid.as_u64(), Ordering::SeqCst)) };
     let current_thread = scheduler.threads.get_mut(&current_tid).unwrap();
@@ -96,6 +86,4 @@ pub fn add_paused_thread(
     *stack_frame = new_thread.stack_frame.take().unwrap();
     *regs = new_thread.regs.take().unwrap();
     scheduler.queue.push_back(current_tid);
-
-    serial_println!("Switching cr3 from {:?} to {:?}", cur_cr3, regs.cr3);
 }

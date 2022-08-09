@@ -8,7 +8,7 @@ use x86_64::{
     PhysAddr, VirtAddr,
 };
 
-use crate::{get_physical_memory_offset, serial_println, KERNEL_INFO};
+use crate::{get_physical_memory_offset, KERNEL_INFO};
 
 static mut FRAME_ALLOCATOR: Once<Mutex<BootInfoFrameAllocator>> = Once::new();
 static KERNEL_MAPPER: Once<Mutex<OffsetPageTable<'static>>> = Once::new();
@@ -108,23 +108,11 @@ pub fn allocate_page_table(
 
 fn get_kernel_level_3_tables(mapper: &mut OffsetPageTable<'static>) -> (PhysAddr, PhysAddr) {
     let kernel_l4_table = mapper.level_4_table();
-    serial_println!("L4 Page table:");
-    for (i, entry) in kernel_l4_table.iter().enumerate() {
-        if !entry.is_unused() {
-            serial_println!("\t{:?} => {:?}", i, entry.addr());
-        }
-    }
-    serial_println!("L3 Page table:");
     let kernel_l3_table = unsafe {
         ((kernel_l4_table[0].addr().as_u64() + mapper.phys_offset().as_u64()) as *const PageTable)
             .as_ref()
             .unwrap()
     };
-    for (i, entry) in kernel_l3_table.iter().enumerate() {
-        if !entry.is_unused() {
-            serial_println!("\t{:?} => {:?}", i, entry.addr());
-        }
-    }
     (kernel_l3_table[510].addr(), kernel_l3_table[511].addr())
 }
 

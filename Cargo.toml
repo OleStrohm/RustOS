@@ -15,6 +15,9 @@ linked_list_allocator = "0.10.1"
 backtrace = { version = "0.3", default-features = false }
 owo-colors = "3.4.0"
 font8x8 = { version = "0.3.1", default-features = false }
+indoc = "1.0.7"
+gimli = { version = "0.26.2", default-features = false, features = ["endian-reader"] }
+object = { version = "0.29.0", default-features = false, features = ["read"] }
 
 [package.metadata.bootloader]
 map-physical-memory = true

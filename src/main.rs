@@ -10,8 +10,8 @@ use core::arch::asm;
 
 use bootloader::{entry_point, BootInfo};
 use os::{
-    print, println,
-    task::{executor::Executor, keyboard, scheduler, Task}, serial_println
+    print, println, serial_println,
+    task::{executor::Executor, keyboard, scheduler, Task}
 };
 use pc_keyboard::DecodedKey;
 
@@ -39,13 +39,16 @@ async fn example_task() {
 }
 
 fn user_task() -> ! {
-        unsafe {
-            asm!("
+    unsafe {
+        asm!(
+            "
                 2:
                 mov rax, 1
                 jmp 2b
-            ", options(noreturn));
-        }
+            ",
+            options(noreturn)
+        );
+    }
 }
 
 fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
@@ -65,6 +68,7 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
 
     println!("Hey there");
     serial_println!("Hey there");
+    //debug::print_stacktrace();
 
     //unsafe {
     //    let mut mapper = memory::init();
@@ -77,10 +81,10 @@ fn kernel_main(boot_info: &'static mut BootInfo) -> ! {
     //    }
     //}
 
-    //scheduler::spawn(|| loop {
-    //    slow();
-    //    print!("2");
-    //});
+    scheduler::spawn(|| loop {
+        slow();
+        print!("2");
+    });
     //scheduler::spawn(|| loop {
     //    slow();
     //    print!("3");

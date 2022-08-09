@@ -2,8 +2,6 @@ use core::fmt;
 use lazy_static::lazy_static;
 use spin::{Mutex, Once};
 
-use crate::serial_println;
-
 const VGA_HEIGHT: usize = 480;
 const VGA_WIDTH: usize = 640;
 const LINE_SIZE: usize = 16;
@@ -13,7 +11,6 @@ lazy_static! {
 }
 
 pub fn init_vga() {
-    serial_println!("setting up vga");
     let vga_offset = 0x_7F55_AAAA_0000u64;
     let vga_base = vga_offset as *mut u32;
     for y in 0..480 {
