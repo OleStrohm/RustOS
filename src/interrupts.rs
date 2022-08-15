@@ -1,12 +1,13 @@
 use crate::task::scheduler::{self, add_paused_thread, current_thread};
 use crate::task::thread::Registers;
-use crate::{gdt, get_kernel_cr3};
+use crate::{gdt, get_kernel_cr3, serial_println, println};
 use core::arch::asm;
 use core::mem::size_of;
 use lazy_static::lazy_static;
 use pic8259::ChainedPics;
 use spin;
 use x86_64::registers::control::{Cr3, Cr3Flags};
+use x86_64::registers::segmentation::{CS, Segment};
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 use x86_64::VirtAddr;
 
@@ -64,7 +65,7 @@ macro_rules! register_interrupt {
             }
         }
         #[allow(unused_unsafe)]
-        unsafe { $idt[$interrupt.as_usize()].set_handler_addr(VirtAddr::new(handler as u64)) }
+        unsafe { $idt[$interrupt as usize].set_handler_addr(VirtAddr::new(handler as u64)) }
     }};
 }
 
@@ -110,6 +111,8 @@ lazy_static! {
                 .set_stack_index(gdt::TIMER_IST_INDEX);
         }
         register_interrupt!(idt, InterruptIndex::Keyboard => keyboard_interrupt_handler);
+        register_interrupt!(idt, InterruptIndex::Syscall => syscall_handler)
+            .set_privilege_level(x86_64::PrivilegeLevel::Ring3);
 
         idt
     };
@@ -117,9 +120,46 @@ lazy_static! {
 pub static PICS: spin::Mutex<ChainedPics> =
     spin::Mutex::new(unsafe { ChainedPics::new(PIC_1_OFFSET, PIC_2_OFFSET) });
 
+pub struct APIC;
+
+pub static LOCAL_APIC: spin::Mutex<APIC> = spin::Mutex::new(APIC);
+
+/// (eax, ebx, ecx, edx)
+fn get_cpuid() -> (u32, u32, u32, u32) {
+    let cpuid = unsafe { core::arch::x86_64::__cpuid(1) };
+    (cpuid.eax, cpuid.ebx, cpuid.ecx, cpuid.edx)
+}
+
+fn cpu_get_msr(msr: u64) -> (u64, u64) {
+    let lo: u64;
+    let hi: u64;
+    unsafe {
+        asm!("rdmsr", out("rax") lo, in("rcx") msr, out("rdx") hi);
+    }
+    (lo, hi)
+}
+
+fn cpu_set_msr(msr: u64, lo: u64, hi: u64) {
+    unsafe { asm!("wrmsr", in("rax") lo, in("rcx") msr, in("rdx") hi) }
+}
+
 pub fn init() {
     IDT.load();
+    //unsafe { PICS.lock().disable() };
     unsafe { PICS.lock().initialize() };
+    //unsafe { LOCAL_APIC.lock() };
+    const APIC_BIT: u32 = 1 << 9;
+    const MSR_BIT: u32 = 1 << 5;
+    let (eax, ebx, ecx, edx) = get_cpuid();
+    serial_println!("{eax:032b}");
+    serial_println!("{ebx:032b}");
+    serial_println!("{ecx:032b}");
+    serial_println!("{edx:032b}");
+    let supports_asic = edx & APIC_BIT != 0;
+    assert!(supports_asic);
+    let has_model_specific_registers = edx & MSR_BIT != 0;
+    assert!(has_model_specific_registers);
+
     x86_64::instructions::interrupts::enable();
 }
 
@@ -273,8 +313,15 @@ fn keyboard_interrupt_handler(_stack_frame: &mut InterruptStackFrame, _regs: &mu
     crate::task::keyboard::add_scancode(scancode);
 }
 
+fn syscall_handler(stack_frame: &mut InterruptStackFrame, _regs: &mut Registers) {
+    serial_println!("syscall!");
+    println!("syscall!");
+    serial_println!("Regs: {stack_frame:?}");
+    serial_println!("cs: {:?}", CS::get_reg());
+}
+
 extern "C" fn interrupt_return(interrupt: InterruptIndex) {
-    unsafe { PICS.lock().notify_end_of_interrupt(interrupt.as_u8()) }
+    unsafe { PICS.lock().notify_end_of_interrupt(interrupt as u8) }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -282,16 +329,7 @@ extern "C" fn interrupt_return(interrupt: InterruptIndex) {
 pub enum InterruptIndex {
     Timer = PIC_1_OFFSET,
     Keyboard,
-}
-
-impl InterruptIndex {
-    const fn as_u8(self) -> u8 {
-        self as u8
-    }
-
-    const fn as_usize(self) -> usize {
-        self as usize
-    }
+    Syscall = 0x80,
 }
 
 #[cfg(test)]

@@ -3,8 +3,8 @@ use core::sync::atomic::{AtomicU64, Ordering};
 use x86_64::registers::control::Cr3;
 use x86_64::structures::idt::InterruptStackFrameValue;
 use x86_64::structures::paging::{
-    mapper, FrameAllocator, Mapper, OffsetPageTable, Page, PageTableFlags as Flags,
-    PhysFrame, Size4KiB,
+    mapper, FrameAllocator, Mapper, OffsetPageTable, Page, PageTableFlags as Flags, PhysFrame,
+    Size4KiB,
 };
 use x86_64::VirtAddr;
 
@@ -49,7 +49,7 @@ impl Thread {
         }
     }
 
-    pub fn create_entrypoint(
+    pub fn create_closure(
         mapper: &mut impl Mapper<Size4KiB>,
         frame_allocator: &mut impl FrameAllocator<Size4KiB>,
         entrypoint: fn() -> !,
@@ -92,6 +92,12 @@ impl Stack {
     ) -> Self {
         Self::alloc_stack(size_in_pages, mapper, frame_allocator).unwrap()
     }
+
+    //unsafe fn push<T>(&mut self, value: T) {
+    //    self.end -= core::mem::size_of::<T>();
+    //    let ptr: *mut T = self.end.as_mut_ptr();
+    //    ptr.write(value);
+    //}
 
     fn alloc_stack(
         size_in_pages: u64,

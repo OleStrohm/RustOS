@@ -57,7 +57,7 @@ pub fn spawn(entrypoint: fn() -> !) {
     let mut mapper = lock_memory_mapper();
     let mut frame_allocator = lock_frame_allocator();
 
-    let thread = Thread::create_entrypoint(&mut *mapper, &mut *frame_allocator, entrypoint);
+    let thread = Thread::create_closure(&mut *mapper, &mut *frame_allocator, entrypoint);
     SCHEDULER.get().unwrap().lock().register_thread(thread);
 }
 
