@@ -7,7 +7,6 @@ use lazy_static::lazy_static;
 use pic8259::ChainedPics;
 use spin;
 use x86_64::registers::control::{Cr3, Cr3Flags};
-use x86_64::registers::segmentation::{CS, Segment};
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 use x86_64::VirtAddr;
 
@@ -124,41 +123,9 @@ pub struct APIC;
 
 pub static LOCAL_APIC: spin::Mutex<APIC> = spin::Mutex::new(APIC);
 
-/// (eax, ebx, ecx, edx)
-fn get_cpuid() -> (u32, u32, u32, u32) {
-    let cpuid = unsafe { core::arch::x86_64::__cpuid(1) };
-    (cpuid.eax, cpuid.ebx, cpuid.ecx, cpuid.edx)
-}
-
-fn cpu_get_msr(msr: u64) -> (u64, u64) {
-    let lo: u64;
-    let hi: u64;
-    unsafe {
-        asm!("rdmsr", out("rax") lo, in("rcx") msr, out("rdx") hi);
-    }
-    (lo, hi)
-}
-
-fn cpu_set_msr(msr: u64, lo: u64, hi: u64) {
-    unsafe { asm!("wrmsr", in("rax") lo, in("rcx") msr, in("rdx") hi) }
-}
-
 pub fn init() {
     IDT.load();
-    //unsafe { PICS.lock().disable() };
     unsafe { PICS.lock().initialize() };
-    //unsafe { LOCAL_APIC.lock() };
-    const APIC_BIT: u32 = 1 << 9;
-    const MSR_BIT: u32 = 1 << 5;
-    let (eax, ebx, ecx, edx) = get_cpuid();
-    serial_println!("{eax:032b}");
-    serial_println!("{ebx:032b}");
-    serial_println!("{ecx:032b}");
-    serial_println!("{edx:032b}");
-    let supports_asic = edx & APIC_BIT != 0;
-    assert!(supports_asic);
-    let has_model_specific_registers = edx & MSR_BIT != 0;
-    assert!(has_model_specific_registers);
 
     x86_64::instructions::interrupts::enable();
 }
@@ -313,11 +280,10 @@ fn keyboard_interrupt_handler(_stack_frame: &mut InterruptStackFrame, _regs: &mu
     crate::task::keyboard::add_scancode(scancode);
 }
 
-fn syscall_handler(stack_frame: &mut InterruptStackFrame, _regs: &mut Registers) {
+fn syscall_handler(_stack_frame: &mut InterruptStackFrame, regs: &mut Registers) {
     serial_println!("syscall!");
     println!("syscall!");
-    serial_println!("Regs: {stack_frame:?}");
-    serial_println!("cs: {:?}", CS::get_reg());
+    println!("User rax: {}", regs.rax);
 }
 
 extern "C" fn interrupt_return(interrupt: InterruptIndex) {

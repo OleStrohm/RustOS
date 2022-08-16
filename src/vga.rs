@@ -2,6 +2,9 @@ use core::fmt;
 use lazy_static::lazy_static;
 use spin::{Mutex, Once};
 
+use crate::{get_framebuffer_address, serial_println};
+
+//TODO: Expose in kernel info
 const VGA_HEIGHT: usize = 480;
 const VGA_WIDTH: usize = 640;
 const LINE_SIZE: usize = 16;
@@ -11,8 +14,8 @@ lazy_static! {
 }
 
 pub fn init_vga() {
-    let vga_offset = 0x_7F55_AAAA_0000u64;
-    let vga_base = vga_offset as *mut u32;
+    serial_println!("fb: {:X}", get_framebuffer_address());
+    let vga_base = get_framebuffer_address() as *mut u32;
     for y in 0..480 {
         for x in 0..640 {
             unsafe {
@@ -21,7 +24,6 @@ pub fn init_vga() {
         }
     }
     WRITER.call_once(|| {
-        let vga_base = 0x_7F55_AAAA_0000u64 as *mut u32;
         Mutex::new(Writer {
             column_position: 0,
             buffer: unsafe { core::slice::from_raw_parts_mut(vga_base, VGA_WIDTH * VGA_HEIGHT) },

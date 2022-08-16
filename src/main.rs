@@ -42,7 +42,7 @@ fn user_task() -> ! {
     unsafe {
         asm!(
             "
-                mov rax, 1
+                mov rax, 12
                 int 0x80
                 2:
                 mov rax, 1

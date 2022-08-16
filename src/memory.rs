@@ -8,13 +8,13 @@ use x86_64::{
     PhysAddr, VirtAddr,
 };
 
-use crate::{get_physical_memory_offset, KERNEL_INFO};
+use crate::{get_memory_regions, get_physical_memory_offset, serial_println};
 
-static mut FRAME_ALLOCATOR: Once<Mutex<BootInfoFrameAllocator>> = Once::new();
+static FRAME_ALLOCATOR: Once<Mutex<BootInfoFrameAllocator>> = Once::new();
 static KERNEL_MAPPER: Once<Mutex<OffsetPageTable<'static>>> = Once::new();
 
 pub fn lock_frame_allocator<'a>() -> MutexGuard<'a, BootInfoFrameAllocator> {
-    unsafe { FRAME_ALLOCATOR.get().unwrap().lock() }
+    FRAME_ALLOCATOR.get().unwrap().lock()
 }
 
 pub fn lock_memory_mapper<'a>() -> MutexGuard<'a, OffsetPageTable<'static>> {
@@ -22,19 +22,39 @@ pub fn lock_memory_mapper<'a>() -> MutexGuard<'a, OffsetPageTable<'static>> {
 }
 
 pub fn init_memory() {
-    let kernel_info = unsafe { KERNEL_INFO.get().unwrap() };
-    let frame_allocator = unsafe { BootInfoFrameAllocator::new(&kernel_info.memory_regions) };
-    unsafe {
-        FRAME_ALLOCATOR.call_once(|| Mutex::new(frame_allocator));
-    }
+    let frame_allocator = unsafe { BootInfoFrameAllocator::new(get_memory_regions()) };
+    FRAME_ALLOCATOR.call_once(|| Mutex::new(frame_allocator));
     let mapper = unsafe { init() };
     KERNEL_MAPPER.call_once(|| Mutex::new(mapper));
+}
+
+pub fn print_page_table(mapper: &mut OffsetPageTable<'static>) {
+    serial_println!("hi");
+    let l4 = mapper.level_4_table();
+    serial_println!("hi");
+    for (i, entry) in l4.iter().enumerate() {
+        if !entry.is_unused() {
+            serial_println!("l4[{}] => {:?}", i, entry.addr());
+        }
+    }
+    serial_println!("hi");
+    let l3 = (get_physical_memory_offset() + l4[0].addr().as_u64()) as *mut PageTable;
+    serial_println!("hi");
+    let l3 = unsafe { &mut *l3 };
+    serial_println!("hi");
+    for (i, entry) in l3.iter().enumerate() {
+        if !entry.is_unused() {
+            serial_println!("l3[{}] => {:?}", i, entry.addr());
+        }
+    }
 }
 
 pub struct BootInfoFrameAllocator {
     memory_map: &'static MemoryRegions,
     next: usize,
 }
+
+unsafe impl Send for BootInfoFrameAllocator {}
 
 impl BootInfoFrameAllocator {
     pub unsafe fn new(memory_map: &'static MemoryRegions) -> Self {
@@ -74,7 +94,8 @@ pub fn allocate_page_table(
     let l1_frame: PhysFrame<Size4KiB> = frame_allocator.allocate_frame().unwrap();
 
     let kernel_page_table_flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
-    let user_page_table_flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE;
+    let user_page_table_flags =
+        PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::USER_ACCESSIBLE;
 
     let l4_address = l4_frame.start_address();
     let l3_address = l3_frame.start_address();

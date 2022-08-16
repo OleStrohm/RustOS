@@ -21,6 +21,7 @@ pub mod serial;
 pub mod task;
 pub mod vga;
 
+use bootloader::boot_info::MemoryRegions;
 use bootloader::BootInfo;
 use core::alloc::Layout;
 use spin::Once;
@@ -28,22 +29,32 @@ use task::scheduler;
 use x86_64::registers::control::Cr3;
 use x86_64::structures::paging::PhysFrame;
 
-pub static mut KERNEL_INFO: Once<&'static BootInfo> = Once::new();
-pub static mut KERNEL_CR3: Once<PhysFrame> = Once::new();
+pub struct KernelInfo {
+    cr3: PhysFrame,
+    memory_regions: &'static MemoryRegions,
+    physical_memory_offset: u64,
+    framebuffer_address: u64,
+}
+
+unsafe impl Send for KernelInfo {}
+unsafe impl Sync for KernelInfo {}
+
+static KERNEL_INFO: Once<KernelInfo> = Once::new();
+
+pub fn get_memory_regions() -> &'static MemoryRegions {
+    KERNEL_INFO.get().unwrap().memory_regions
+}
 
 pub fn get_physical_memory_offset() -> u64 {
-    unsafe {
-        KERNEL_INFO
-            .get()
-            .unwrap()
-            .physical_memory_offset
-            .into_option()
-            .unwrap()
-    }
+    KERNEL_INFO.get().unwrap().physical_memory_offset
 }
 
 pub fn get_kernel_cr3() -> PhysFrame {
-    unsafe { *KERNEL_CR3.get().unwrap() }
+    KERNEL_INFO.get().unwrap().cr3
+}
+
+pub fn get_framebuffer_address() -> u64 {
+    KERNEL_INFO.get().unwrap().framebuffer_address
 }
 
 #[cfg(test)]
@@ -59,14 +70,26 @@ fn test_kernel_main(bootinfo: &'static mut BootInfo) -> ! {
     hlt_loop();
 }
 
-pub fn init(boot_info: &'static BootInfo) {
-    unsafe {
-        KERNEL_INFO.call_once(|| boot_info);
-        KERNEL_CR3.call_once(|| Cr3::read().0);
-    }
+pub fn init(boot_info: &'static mut BootInfo) {
+    KERNEL_INFO.call_once(|| KernelInfo {
+        cr3: Cr3::read().0,
+        memory_regions: &boot_info.memory_regions,
+        physical_memory_offset: boot_info.physical_memory_offset.into_option().unwrap(),
+        framebuffer_address: boot_info
+            .framebuffer
+            .as_mut()
+            .unwrap()
+            .buffer_mut()
+            .as_mut_ptr() as u64,
+    });
+    serial_println!("made it");
     vga::init_vga();
+    serial_println!("made it");
     interrupts::init();
+    //TODO move this one up in the order
+    serial_println!("made it");
     gdt::init();
+    serial_println!("made it");
     memory::init_memory();
     allocator::init_heap().expect("Heap initalization failed");
     scheduler::init_scheduler();

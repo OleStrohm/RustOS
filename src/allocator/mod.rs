@@ -10,12 +10,12 @@ use x86_64::{
     VirtAddr,
 };
 
-use crate::memory::{lock_frame_allocator, lock_memory_mapper};
+use crate::{memory::{lock_frame_allocator, lock_memory_mapper, print_page_table}, serial_println};
 
 #[global_allocator]
 static ALLOCATOR: Locked<FixedSizeBlockAllocator> = Locked::new(FixedSizeBlockAllocator::new());
 
-pub const HEAP_START: usize = 0x4444_4444_0000;
+pub const HEAP_START: usize = 0xFFFF_A000_0000_0000;
 pub const HEAP_SIZE: usize = 100 * 1024;
 
 pub struct Locked<A> {
@@ -39,6 +39,8 @@ impl<A> core::ops::Deref for Locked<A> {
 }
 
 pub fn init_heap() -> Result<(), MapToError<Size4KiB>> {
+    let virt = VirtAddr::new(HEAP_START as u64);
+    serial_println!("Heap indices: {:?}, {:?}, {:?}, {:?}", virt.p4_index(), virt.p3_index(), virt.p2_index(), virt.p1_index());
     let mut frame_allocator = lock_frame_allocator();
     let mut mapper = lock_memory_mapper();
     let page_range = {
@@ -56,6 +58,8 @@ pub fn init_heap() -> Result<(), MapToError<Size4KiB>> {
         let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
         unsafe { mapper.map_to(page, frame, flags, &mut *frame_allocator)?.flush() }
     }
+
+    print_page_table(&mut mapper);
 
     unsafe {
         ALLOCATOR.lock().init(HEAP_START, HEAP_SIZE);
